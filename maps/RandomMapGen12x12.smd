@@ -1,0 +1,67 @@
+[MAP]
+{
+	Description=Made by Forboding Angel;
+	TidalStrength=20;
+	Gravity=130;
+	MaxMetal=1;
+	ExtractorRadius=100;
+	MapHardness=800;
+	AutoShowMetal=1;
+
+	[ATMOSPHERE]
+	{
+		FogColor=.8 1 1;
+		FogStart=.7;
+
+		CloudColor=1 1 1;
+		SkyColor=0.1 0.15 0.7;
+
+		SunColor=1 1 1;
+		CloudDensity=0.3;
+
+		MinWind=1;
+		MaxWind=25;
+	}
+	[WATER]
+	{
+		WaterSurfaceColor=0.34 0.59 1;
+		WaterPlaneColor=0.34 0.59 1;
+		WaterBaseColor=0.4 0.6 0.8;
+		WaterAbsorb=0 0 0;
+		WaterMinColor=0.1 0.1 0.3;
+		WaterDamage=;
+	}
+	[LIGHT]
+	{
+		SunDir=0 0.3 1;						//direction of sun (spring will normalize it later)(y component is upward)
+		
+		GroundAmbientColor=0.8 .8 .85;		//ambient (non sun lit) color of ground (and grass etc)
+		GroundSunColor=1.0 1.0 .9;			//color of ground where fully sun lit (added to ambient)
+		GroundShadowDensity=1.95;			//how far from the non shadowed to the ambient color stuff in shadow will go
+
+		UnitAmbientColor=0.42 0.41 0.52;		//ambient (non sun lit) color of units (and wreckage etc)
+		UnitSunColor=0.72 0.70 0.53;			//color of units where fully sun lit (added to ambient)
+		UnitShadowDensity=.81;
+	}
+		[TEAM0]
+		{
+		StartPosX=229;
+		StartPosZ=229;
+		}
+	[TEAM1]
+		{
+		StartPosX=3678;
+		StartPosZ=3809;
+		}
+	[TEAM2]
+		{
+		StartPosX=3604;
+		StartPosZ=262;
+		}
+	[TEAM3]
+		{
+		StartPosX=369;
+		StartPosZ=3703;
+		}
+
+}
