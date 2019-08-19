@@ -51,35 +51,6 @@ end
 
 --------------------------------------------------------------------------------
 --------------------------------------------------------------------------------
--- Debug
-
-local function PointEcho(point, text)
-	Spring.MarkerAddPoint(point[1], 0, point[2], text or "")
-end
-
-local function LineEcho(p1, p2)
-	if p2 then
-		Spring.MarkerAddLine(p1[1], 0, p1[2], p2[1], 0, p2[2], true)
-	else
-		Spring.MarkerAddLine(p1[1][1], 0, p1[1][2], p1[2][1], 0, p1[2][2], true)
-		Spring.MarkerAddLine(p1[2][1] + 20, 0, p1[2][2], p1[2][1] - 20, 0, p1[2][2], true)
-		Spring.MarkerAddLine(p1[2][1], 0, p1[2][2] + 20, p1[2][1], 0, p1[2][2] - 20, true)
-	end
-end
-
-local function CellEcho(cells)
-	for i = 1, #cells do
-		local thisCell = cells[i]
-		PointEcho(thisCell.site, "Cell: " .. i .. ", edges: " .. #thisCell.edges)
-		for k = 1, #thisCell.edges do
-			LineEcho(thisCell.edges[k])
-			--PointEcho(Add(thisCell.edges[k][1], {i*16, 0}), i)
-		end
-	end
-end
-
---------------------------------------------------------------------------------
---------------------------------------------------------------------------------
 -- Vector
 
 local function DistSq(p1, p2)
@@ -100,6 +71,18 @@ end
 
 local function Subtract(v1, v2)
 	return {v1[1] - v2[1], v1[2] - v2[2]}
+end
+
+local function AbsValSq(x)
+	return x[1]^2 + x[2]^2
+end
+
+local function LengthSq(line)
+	return DistSq(line[1], line[2])
+end
+
+local function Length(line)
+	return Dist(line[1], line[2])
 end
 
 local function AbsVal(x, y, z)
@@ -136,6 +119,22 @@ local function RotateLeft(v)
 	return {-v[2], v[1]}
 end
 
+local function RotateVector(v, angle)
+	return {v[1]*cos(angle) - v[2]*sin(angle), v[1]*sin(angle) + v[2]*cos(angle)}
+end
+
+local function Dot(v1, v2)
+	if v1[3] then
+		return v1[1]*v2[1] + v1[2]*v2[2] + v1[3]*v2[3]
+	else
+		return v1[1]*v2[1] + v1[2]*v2[2]
+	end
+end
+
+function Cross(v1, v2)
+	return {v1[2]*v2[3] - v1[3]*v2[2], v1[3]*v2[1] - v1[1]*v2[3], v1[1]*v2[2] - v1[2]*v2[1]}
+end
+
 local function Angle(x,z)
 	if not z then
 		x, z = x[1], x[2]
@@ -156,16 +155,8 @@ local function Angle(x,z)
 	return 0
 end
 
-local function Dot(v1, v2)
-	if v1[3] then
-		return v1[1]*v2[1] + v1[2]*v2[2] + v1[3]*v2[3]
-	else
-		return v1[1]*v2[1] + v1[2]*v2[2]
-	end
-end
-
-function Cross(v1, v2)
-	return {v1[2]*v2[3] - v1[3]*v2[2], v1[3]*v2[1] - v1[1]*v2[3], v1[1]*v2[2] - v1[2]*v2[1]}
+local function GetAngleBetweenUnitVectors(u, v)
+	return math.acos(Dot(u, v))
 end
 
 -- Projection of v1 onto v2
@@ -189,10 +180,10 @@ local function IsPositiveIntersect(lineInt, lineMid, lineDir)
 	return Dot(Subtract(lineInt, lineMid), lineDir) > 0
 end
 
-local function DistanceToLine(point, line)
+local function DistanceToBoundedLine(point, line)
 	local startToPos = Subtract(point, line[1])
 	local startToEnd = Subtract(line[2], line[1])
-	local normal, projection = Normal(startToPos, Subtract(line[2], line[1]))
+	local normal, projection = Normal(startToPos, startToEnd)
 	local projFactor = Dot(projection, startToEnd)
 	if projFactor < 0 then
 		return Dist(line[1], point)
@@ -201,6 +192,13 @@ local function DistanceToLine(point, line)
 		return Dist(line[2], point)
 	end
 	return AbsVal(Subtract(startToPos, normal))
+end
+
+local function DistanceToLineSq(point, line)
+	local startToPos = Subtract(point, line[1])
+	local startToEnd = Subtract(line[2], line[1])
+	local normal, projection = Normal(startToPos, startToEnd)
+	return AbsValSq(normal)
 end
 
 local function GetRandomDir()
@@ -212,18 +210,73 @@ local function GetRandomSign()
 	return (math.floor(math.random()*2))*2 - 1
 end
 
+local function SamePoint(p1, p2)
+	return ((p1[1] - p2[1] < 1) and (p2[1] - p1[1] < 1)) and ((p1[2] - p2[2] < 1) and (p2[2] - p1[2] < 1))
+end
+
+local function SameLine(l1, l2)
+	return (SamePoint(l1[1], l2[1]) and SamePoint(l1[2], l2[2])) or (SamePoint(l1[1], l2[2]) and SamePoint(l1[2], l2[1]))
+end
+
+local function CompareLengthSq(a, b)
+	return a.length < b.length
+end
+
+local function InverseBasis(a, b, c, d)
+	local det = a*d - b*c
+	return d/det, -b/det, -c/det, a/det
+end
+
+local function ChangeBasis(v, a, b, c, d)
+	return {v[1]*a + v[2]*b, v[1]*c + v[2]*d}
+end
+
 --------------------------------------------------------------------------------
 --------------------------------------------------------------------------------
 -- Point manipulation
 
-local function GetClosestPoint(point, nearPoints)
+local function GetClosestPoint(point, nearPoints, useSize)
 	if not nearPoints[1] then
 		return false
 	end
 	local closeIndex = 1
-	local closeDistSq = DistSq(point, nearPoints[1])
+	local closeDist = Dist(point, nearPoints[1])
 	for i = 2, #nearPoints do
-		local thisDistSq = DistSq(point, nearPoints[i])
+		local thisDist = Dist(point, nearPoints[i])
+		if thisDist + ((useSize and nearPoints[i].size) or 0) < closeDist then
+			closeIndex = i
+			closeDist = thisDist
+		end
+	end
+	
+	return closeIndex, closeDist
+end
+
+local function GetClosestCell(point, nearCells)
+	if not nearCells[1] then
+		return false
+	end
+	local closeIndex = 1
+	local closeDistSq = DistSq(point, nearCells[1].site)
+	for i = 2, #nearCells do
+		local thisDistSq = DistSq(point, nearCells[i].site)
+		if thisDistSq < closeDistSq then
+			closeIndex = i
+			closeDistSq = thisDistSq
+		end
+	end
+	
+	return closeIndex, closeDistSq
+end
+
+local function GetClosestLine(point, nearLines)
+	if not nearLines[1] then
+		return false
+	end
+	local closeIndex = 1
+	local closeDistSq = DistanceToLineSq(point, nearLines[1])
+	for i = 2, #nearLines do
+		local thisDistSq = DistanceToLineSq(point, nearLines[i])
 		if thisDistSq < closeDistSq then
 			closeIndex = i
 			closeDistSq = thisDistSq
@@ -250,20 +303,14 @@ local function GetPointCell(point, cells)
 	return closeIndex, closeDistSq
 end
 
-local function GetClosestPointDistSq(point, nearPoints)
-	local _, distSq =  GetClosestPoint(point, nearPoints)
-	return distSq or 999999999999999999
-end
-
-local function GetRandomPoint(avoidDist, avoidPoints, maxAttempts)
+local function GetRandomPoint(avoidDist, avoidPoints, maxAttempts, useOtherSize)
 	local point = {math.random()*MAP_X, math.random()*MAP_Z}
 	if not avoidDist then
 		return point
 	end
-	local avoidDistSq = avoidDist^2
 	
 	local attempts = 1
-	while GetClosestPointDistSq(point, avoidPoints) < avoidDistSq do
+	while (select(2, GetClosestPoint(point, avoidPoints, useOtherSize)) or 0) < avoidDist do
 		point = {math.random()*MAP_X, math.random()*MAP_Z}
 		attempts = attempts + 1
 		if attempts > maxAttempts then
@@ -305,6 +352,36 @@ end
 
 --------------------------------------------------------------------------------
 --------------------------------------------------------------------------------
+-- Debug
+
+function PointEcho(point, text)
+	Spring.MarkerAddPoint(point[1], 0, point[2], text or "")
+end
+
+function LineEcho(line, text)
+	PointEcho(GetMidpoint(line[1], line[2]), text)
+end
+
+function LineDraw(p1, p2)
+	if p2 then
+		Spring.MarkerAddLine(p1[1], 0, p1[2], p2[1], 0, p2[2], true)
+	else
+		Spring.MarkerAddLine(p1[1][1], 0, p1[1][2], p1[2][1], 0, p1[2][2], true)
+		Spring.MarkerAddLine(p1[2][1] + 20, 0, p1[2][2], p1[2][1] - 20, 0, p1[2][2], true)
+		Spring.MarkerAddLine(p1[2][1], 0, p1[2][2] + 20, p1[2][1], 0, p1[2][2] - 20, true)
+	end
+end
+
+function CellEcho(cell)
+	PointEcho(cell.site, "Cell: " .. cell.index .. ", edges: " .. #cell.edges)
+	for k = 1, #cell.edges do
+		LineDraw(cell.edges[k])
+		--PointEcho(Add(thisCell.edges[k][1], {i*16, 0}), i)
+	end
+end
+
+--------------------------------------------------------------------------------
+--------------------------------------------------------------------------------
 -- Voronoi
 
 local function GetBoundedLine(pos, dir, bounder)
@@ -326,8 +403,7 @@ local MAP_BORDER = {
 	{{MAP_X, -10*MAP_Z}, {MAP_X, 10*MAP_Z}},
 }
 
-local function InitVoronoi()
-	
+local function GetBoundingCells()
 	local cells = {}
 	for i = 1, #OUTER_POINTS do
 		local newCell = {
@@ -353,22 +429,18 @@ local function InitVoronoi()
 	return cells
 end
 
-local function GenerateVoronoi(pointNum, minDist)
-	local points = {}
-	for i = 1, pointNum do
-		points[#points + 1] = GetRandomPoint(minDist, points, 50)
-		points[#points + 1] = ApplyRotSymmetry(points[#points])
-	end
-	
-	local cells = InitVoronoi()
+local function GenerateVoronoiCells(points)
+	local outerCells = GetBoundingCells()
+	local cells = {}
+	local edgeIndex = 0
 	
 	for i = 1, #points do
 		local newCell = {
 			site = points[i],
 			edges = {},
 		}
-		for j = 1, #cells do
-			local otherCell = cells[j]
+		for j = 1 - #outerCells, #cells do
+			local otherCell = (j > 0 and cells[j]) or outerCells[j + #outerCells]
 			local pos = GetMidpoint(newCell.site, otherCell.site)
 			local dir = RotateLeft(Unit(Subtract(newCell.site, otherCell.site)))
 			local line = GetBoundedLine(pos, dir, OUTER_BOUNDS)
@@ -379,9 +451,9 @@ local function GenerateVoronoi(pointNum, minDist)
 				local int = GetBoundedLineIntersection(line, otherEdge)
 				if int then
 					if GetBoundedLineIntersection(line, {otherEdge[1], otherCell.site}) then
-						otherCell.edges[k] = {int, otherCell.edges[k][2]}
+						otherCell.edges[k] = {int, otherCell.edges[k][2], otherCell.edges[k][3]}
 					else
-						otherCell.edges[k] = {otherCell.edges[k][1], int}
+						otherCell.edges[k] = {otherCell.edges[k][1], int, otherCell.edges[k][3]}
 					end
 					intersections = intersections or {}
 					intersections[#intersections + 1] = int
@@ -393,48 +465,165 @@ local function GenerateVoronoi(pointNum, minDist)
 				end
 			end
 			if intersections then
+				if #intersections ~= 2 then
+					Spring.Echo("#intersections ~= 2")
+					return
+				end
 				newCell.edges[#newCell.edges + 1] = intersections
 				otherCell.edges[#otherCell.edges + 1] = intersections
+				
+				edgeIndex = edgeIndex + 1
+				intersections[3] = edgeIndex
 			end
 		end
 		cells[#cells + 1] = newCell
 	end
 	
+	return cells
+end
+
+local function BoundExtendedVoronoiToMapEdge(cells)
 	for i = 1, #MAP_BORDER do
 		local borderLine = MAP_BORDER[i]
 		for j = #cells, 1, -1 do
 			local thisCell = cells[j]
-			if not InMapBounds(thisCell.site) then
-				cells[j] = cells[#cells]
-				cells[#cells] = nil
-			else
-				local intersections = false
-				for k = #thisCell.edges, 1, -1 do
-					local thisEdge = thisCell.edges[k]
-					local int = GetBoundedLineIntersection(borderLine, thisEdge)
-					if int then
-						if GetBoundedLineIntersection(borderLine, {thisEdge[1], thisCell.site}) then
-							thisCell.edges[k] = {int, thisCell.edges[k][2]}
-						else
-							thisCell.edges[k] = {thisCell.edges[k][1], int}
-						end
-						intersections = intersections or {}
-						intersections[#intersections + 1] = int
+			local intersections = false
+			for k = #thisCell.edges, 1, -1 do
+				local thisEdge = thisCell.edges[k]
+				local int = GetBoundedLineIntersection(borderLine, thisEdge)
+				if int then
+					if GetBoundedLineIntersection(borderLine, {thisEdge[1], thisCell.site}) then
+						thisCell.edges[k] = {int, thisCell.edges[k][2], thisCell.edges[k][3]}
 					else
-						if GetBoundedLineIntersection(borderLine, {thisEdge[1], thisCell.site}) then
-							thisCell.edges[k] = thisCell.edges[#thisCell.edges]
-							thisCell.edges[#thisCell.edges] = nil
-						end
+						thisCell.edges[k] = {thisCell.edges[k][1], int, thisCell.edges[k][3]}
+					end
+					intersections = intersections or {}
+					intersections[#intersections + 1] = int
+				else
+					if GetBoundedLineIntersection(borderLine, {thisEdge[1], thisCell.site}) then
+						thisCell.edges[k] = thisCell.edges[#thisCell.edges]
+						thisCell.edges[#thisCell.edges] = nil
 					end
 				end
-				if intersections then
-					thisCell.edges[#thisCell.edges + 1] = intersections
+			end
+			if intersections then
+				thisCell.edges[#thisCell.edges + 1] = intersections
+			end
+		end
+	end
+	return cells
+end
+
+local function CleanVoronoiReferences(cells)
+	local edgeList = {}
+	local edgesAdded = {}
+	
+	-- Enter mirror cell
+	for i = 1, #cells do
+		cells[i].neighbours = {}
+		cells[i].edgeMap = {}
+		cells[i].index = i
+		cells[i].mirror = cells[cells[i].site.mirror]
+		cells[i].site.mirror = nil
+	end
+	
+	-- Find cell neighbours and edge faces.
+	for i = 1, #cells do
+		local thisCell = cells[i]
+		for j = 1, #thisCell.edges do
+			local thisEdge = thisCell.edges[j]
+			if thisEdge[3] and edgesAdded[thisEdge[3]] then -- Check for edgeIndex
+				thisEdge = edgesAdded[thisEdge[3]]
+				thisCell.edges[j] = thisEdge
+				
+				if thisEdge.faces[1] then
+					local otherCell = thisEdge.faces[1]
+					otherCell.neighbours[#otherCell.neighbours + 1] = thisCell
+					thisCell.neighbours[#thisCell.neighbours + 1] = otherCell
+				end
+				
+				thisEdge.faces[#thisEdge.faces + 1] = thisCell
+			else
+				edgeList[#edgeList + 1] = thisEdge
+				thisEdge.faces = {thisCell}
+				thisEdge.index = #edgeList
+				if thisEdge[3] then
+					edgesAdded[thisEdge[3]] = thisEdge
+				end
+			end
+			thisCell.edgeMap[thisEdge.index] = thisEdge
+		end
+	end
+	
+	-- Set edge other face and length
+	for i = 1, #edgeList do
+		local thisEdge = edgeList[i]
+		thisEdge.length = Length(thisEdge)
+		thisEdge.unit   = Unit(Subtract(thisEdge[2], thisEdge[1]))
+		
+		thisEdge.otherFace = {}
+		if thisEdge.faces[2] then
+			for j = 1, #thisEdge.faces do
+				thisEdge.otherFace[thisEdge.faces[j].index] = thisEdge.faces[3 - j]
+			end
+		end
+	end
+	
+	-- Set edge neighbours
+	for i = 1, #edgeList do
+		local thisEdge = edgeList[i]
+		thisEdge.neighbours = {
+			[1] = {},
+			[2] = {},
+		}
+		thisEdge.incidentEnd = {}
+		
+		for j = 1, #thisEdge.faces do
+			local thisCell = thisEdge.faces[j]
+			for k = 1, #thisCell.edges do
+				local otherEdge = thisCell.edges[k]
+				if otherEdge.index ~= thisEdge.index then
+					for n = 1, #thisEdge.neighbours do
+						local thisNbhd = thisEdge.neighbours[n]
+						local otherIncidentEnd = (SamePoint(thisEdge[n], otherEdge[1]) and 1) or (SamePoint(thisEdge[n], otherEdge[2]) and 2)
+						if otherIncidentEnd then
+							thisEdge.incidentEnd[otherEdge.index] = otherIncidentEnd
+							thisNbhd[#thisNbhd + 1] = otherEdge
+							if (otherEdge.faces[1].index ~= thisEdge.faces[1].index) and (otherEdge.faces[1].index ~= (thisEdge.faces[2] and thisEdge.faces[2].index)) then
+								thisNbhd.endFace = otherEdge.faces[1]
+							elseif otherEdge.faces[2] and (otherEdge.faces[2].index ~= thisEdge.faces[1].index) and (otherEdge.faces[2].index ~= (thisEdge.faces[2] and thisEdge.faces[2].index)) then
+								thisNbhd.endFace = otherEdge.faces[2]
+							end
+						end
+					end
 				end
 			end
 		end
 	end
 	
-	return cells
+	return cells, edgeList
+end
+
+local function GenerateVoronoi(pointNum, minSpacing, maxSpacing)
+	local points = {}
+	local avoidDist = maxSpacing
+	for i = 1, pointNum do
+		local point = GetRandomPoint(avoidDist, points, 50, true)
+		local pointMirror = ApplyRotSymmetry(point)
+		
+		point.size = avoidDist
+		pointMirror.size = avoidDist
+		
+		points[#points + 1] = point
+		pointMirror.mirror = #points
+		points[#points + 1] = pointMirror
+		point.mirror = #points
+		
+		avoidDist = avoidDist - (maxSpacing - minSpacing)/pointNum
+	end
+	
+	local cells, edges = CleanVoronoiReferences(BoundExtendedVoronoiToMapEdge(GenerateVoronoiCells(points)))
+	return cells, edges
 end
 
 --------------------------------------------------------------------------------
@@ -458,7 +647,7 @@ local function GetWave(translational, params)
 	-- Period is peak-to-peak distance.
 	period = period/(2*pi)
 	
-	local dir, wavePeriod, zeroAngle
+	local dir, wavePeriod, zeroAngle, stretchReduction
 	
 	if translational then
 		dir =  translational and GetRandomDir()
@@ -471,6 +660,7 @@ local function GetWave(translational, params)
 		wavePeriod = 1/waveRotations
 		
 		spread = spread/(period*(2*pi))
+		stretchReduction = spread/2
 	end
 	
 	local function GetValue(x, z)
@@ -487,7 +677,7 @@ local function GetWave(translational, params)
 		else
 			normal  = sqrt(x^2 + z^2)
 			tangent = Angle(x,z) + zeroAngle
-			
+			-- *(normal/(normal + stretchReduction))
 			-- Implement scale spread
 			normal = abs(normal*(1 + sin(tangent/wavePeriod)*spread))
 		end
@@ -504,35 +694,6 @@ end
 
 local function GetRotationalWave(params)
 	return GetWave(false, params)
-end
-
-local function TerraformByFunc(func)
-	local function DoTerra()
-		for x = 0, MAP_X, SQUARE_SIZE do
-			for z = 0, MAP_Z, SQUARE_SIZE do
-				spSetHeightMap(x, z, func(x, z))
-			end
-			Spring.ClearWatchDogTimer()
-		end
-	end
-	
-	Spring.SetHeightMapFunc(DoTerra)
-end
-
-local function TerraformByFuncAndVoronoi(func, cells)
-	local function DoTerra()
-		local point = {0, 0}
-		for x = 0, MAP_X, SQUARE_SIZE do
-			for z = 0, MAP_Z, SQUARE_SIZE do
-				point[1], point[2] = x, z
-				local cellIndex = GetPointCell(point, cells)
-				spSetHeightMap(x, z, func(cells[cellIndex].site[1], cells[cellIndex].site[2]))
-			end
-			Spring.ClearWatchDogTimer()
-		end
-	end
-
-	Spring.SetHeightMapFunc(DoTerra)
 end
 
 local function GetTerrainWaveFunction()
@@ -598,8 +759,8 @@ local function GetTerrainWaveFunction()
 		offsetMax = 0.4,
 		growthMin = 0.02,
 		growthMax = 0.2,
-		wavePeriodMin = 5000,
-		wavePeriodMax = 12000,
+		wavePeriodMin = 2000,
+		wavePeriodMax = 5000,
 		waveRotationsMin = 1,
 		waveRotationsMax = 8,
 	}
@@ -625,11 +786,223 @@ local function GetTerrainWaveFunction()
 	local bigMult = GetTranslationalWave(bigMultParams)
 	
 	local function GetValue(x, z)
-		--return bigMult(x,z)*100
-		return 1.6*(rot(x,z)*transMult(x,z) + trans(x,z)*rotMult(x,z) + bigMult(x,z)*(trans2(x,z)*transMult2(x,z) + trans3(x,z)*rotMult3(x,z)) + 70)
+		--return rot(x,z)*5 + 70
+		return 1.25*(rot(x,z)*transMult(x,z) + trans(x,z)*rotMult(x,z) + bigMult(x,z)*(trans2(x,z)*transMult2(x,z) + trans3(x,z)*rotMult3(x,z)) + 70)
 	end
 	
 	return GetValue
+end
+
+--------------------------------------------------------------------------------
+--------------------------------------------------------------------------------
+-- Write terrain
+
+local function TerraformByFunc(func)
+	local function DoTerra()
+		for x = 0, MAP_X, SQUARE_SIZE do
+			for z = 0, MAP_Z, SQUARE_SIZE do
+				spSetHeightMap(x, z, func(x, z))
+			end
+			Spring.ClearWatchDogTimer()
+		end
+	end
+	
+	Spring.SetHeightMapFunc(DoTerra)
+end
+
+local function TerraformByFuncAndVoronoi(cells, func)
+	local function DoTerra()
+		local point = {0, 0}
+		for x = 0, MAP_X, SQUARE_SIZE do
+			for z = 0, MAP_Z, SQUARE_SIZE do
+				point[1], point[2] = x, z
+				local cellIndex = GetPointCell(point, cells)
+				local cell = cells[cellIndex]
+				spSetHeightMap(x, z, func(cells[cellIndex].site[1], cells[cellIndex].site[2]))
+			end
+			Spring.ClearWatchDogTimer()
+		end
+	end
+
+	Spring.SetHeightMapFunc(DoTerra)
+end
+
+local function DistanceToSlopeFactor(dist, width)
+	if dist < -width then
+		return 0
+	end
+	if dist > width then
+		return 1
+	end
+	
+	return (1 - cos(pi*(dist/2 + width/2)/width))/2
+end
+
+local function MakeSingleEdgeSlope(cell, cellIndex, projFactor, edge, startToPoint)
+	local proj = Mult(projFactor*edge.length, edge.unit)
+	local normal = Subtract(startToPoint, proj)
+	local dist = AbsVal(normal)
+	local slopeFactor = DistanceToSlopeFactor(dist, 200)
+	return cell.height*slopeFactor + (1 - slopeFactor)*edge.otherFace[cellIndex].height
+end
+
+local function GetPointHeight(cells, edges, point)
+	local cellIndex = GetPointCell(point, cells)
+	local cell = cells[cellIndex]
+	local edgeIndex = GetClosestLine(point, cell.edges)
+	local edge, edgeDistSq = cell.edges[edgeIndex]
+	
+	local startToPoint = Subtract(point, edge[1])
+	
+	local projFactor = Dot(startToPoint, edge.unit)/edge.length
+	local edgeIncidence = ((projFactor < 0.5 and 1) or 2)
+	local nbhd = edge.neighbours[edgeIncidence]
+	
+	local otherEdge
+	for i = 1, #nbhd do
+		if cell.edgeMap[nbhd[i].index] then
+			otherEdge = nbhd[i]
+			break
+		end
+	end
+	
+	if not (edge.otherFace[cellIndex]) then
+		if not (otherEdge.otherFace[cellIndex]) then
+			return cell.height
+		end
+		edge = otherEdge
+		startToPoint = Subtract(point, edge[1])
+		projFactor = Dot(startToPoint, edge.unit)/edge.length
+		return MakeSingleEdgeSlope(cell, cellIndex, projFactor, edge, startToPoint)
+	end
+	
+	if not (otherEdge.otherFace[cellIndex]) then
+		return MakeSingleEdgeSlope(cell, cellIndex, projFactor, edge, startToPoint)
+	end
+	
+	local cellTeir = cell.teir
+	local topOfCliff = (cellTeir > edge.otherFace[cellIndex].teir and cellTeir > otherEdge.otherFace[cellIndex].teir)
+	local bottomOfCliff = (cellTeir < edge.otherFace[cellIndex].teir and cellTeir < otherEdge.otherFace[cellIndex].teir and edge.otherFace[cellIndex].teir == otherEdge.otherFace[cellIndex].teir)
+	
+	if not (topOfCliff or bottomOfCliff) then
+		return cell.height
+	end
+	
+	local intPoint = edge[edgeIncidence]
+	local intToPoint = Subtract(point, intPoint)
+	local otherIncidence = edge.incidentEnd[otherEdge.index]
+	
+	local otherProjFactor = Dot(intToPoint, otherEdge.unit)/otherEdge.length
+	if otherIncidence == 2 then
+		otherProjFactor = 1 - otherProjFactor
+	end
+	
+	local edgeOut = Mult((-edgeIncidence + 1.5)*edge.length, edge.unit)
+	local otherOut = Mult((-otherIncidence + 1.5)*otherEdge.length, otherEdge.unit)
+	
+	local m1, m2, m3, m4 = InverseBasis(edgeOut[1], otherOut[1], edgeOut[2], otherOut[2])
+	local rotPoint = ChangeBasis(intToPoint, m1, m2, m3, m4)
+
+	if rotPoint[1] > 1 or rotPoint[2] > 1 then
+		return cell.height
+	end
+	
+	local dist = sqrt((rotPoint[1] - 1)^2 + (rotPoint[2] - 1)^2)
+	if dist < 1 then
+		return cell.height
+	end
+	
+	return edge.otherFace[cellIndex].height
+end
+
+local function TerraformByCellHeightSmooth(cells, edges)
+	local function DoTerra()
+		local point = {0, 0}
+		for x = 0, MAP_X, SQUARE_SIZE do
+			for z = 0, MAP_Z, SQUARE_SIZE do
+				point[1], point[2] = x, z
+				spSetHeightMap(x, z, GetPointHeight(cells, edges, point))
+			end
+			Spring.ClearWatchDogTimer()
+		end
+	end
+
+	Spring.SetHeightMapFunc(DoTerra)
+end
+
+local function TerraformByCellHeight(cells)
+	local function DoTerra()
+		local point = {0, 0}
+		for x = 0, MAP_X, SQUARE_SIZE do
+			for z = 0, MAP_Z, SQUARE_SIZE do
+				point[1], point[2] = x, z
+				local cellIndex = GetPointCell(point, cells)
+				local cell = cells[cellIndex]
+				--local edgeIndex = GetClosestLine(point, cell.edges)
+				--spSetHeightMap(x, z, func(cells[cellIndex].site[1], cells[cellIndex].site[2]) + 2*edgeIndex)
+				spSetHeightMap(x, z, cells[cellIndex].height)
+			end
+			Spring.ClearWatchDogTimer()
+		end
+	end
+
+	Spring.SetHeightMapFunc(DoTerra)
+end
+
+
+--------------------------------------------------------------------------------
+--------------------------------------------------------------------------------
+-- Voronoi heights
+
+local function GenerateCellTeirs(cells, waveFunc)
+	local averageheight = 0
+	for i = 1, #cells do
+		local height = waveFunc(cells[i].site[1], cells[i].site[2])
+		averageheight = averageheight + height
+	end
+	averageheight = averageheight/#cells
+	
+	local std = 0
+	for i = 1, #cells do
+		local height = waveFunc(cells[i].site[1], cells[i].site[2])
+		std = std + (height - averageheight)^2
+	end
+	std = sqrt(std/#cells)
+	
+	Spring.Echo("averageheight", averageheight, "std", std)
+	
+	local waterFator = math.random()
+	
+	local bucketWidth = 80 + std/2
+	local teirHeight = math.min(120, 80 + std/3)
+	for i = 1, #cells do
+		local cell = cells[i]
+		local height = waveFunc(cell.site[1], cell.site[2])
+		local teir = math.floor((height - averageheight + bucketWidth*waterFator)/bucketWidth)
+		
+		cell.teir = teir
+		cell.height = teir*teirHeight + teirHeight + 8
+		if cell.mirror then
+			cell.mirror.teir = cell.teir
+			cell.mirror.height = cell.height
+		end
+	end
+end
+
+local function GenerateEdgePassability(cells, edges)
+
+end
+
+local function SetStartCells(cells)
+	local topLeftCell = cells[GetClosestCell({0, 0}, cells)]
+	local startCells = {topLeftCell}
+	for i = 1, #topLeftCell.neighbours do
+		if topLeftCell.neighbours[i].mirror then
+			startCells[#startCells + 1] = topLeftCell.neighbours[i]
+		end
+	end
+	
+	return startCells
 end
 
 --------------------------------------------------------------------------------
@@ -647,12 +1020,54 @@ function gadget:Initialize()
 	local waveFunc = GetTerrainWaveFunction()
 	--TerraformByFunc(waveFunc)
 	
-	local cells = GenerateVoronoi(18, 220)
-	--CellEcho(cells)
+	local cells, edges = GenerateVoronoi(18, 400, 500)
 	
-	TerraformByFuncAndVoronoi(waveFunc, cells)
+	GenerateCellTeirs(cells, waveFunc)
+	GenerateEdgePassability(cells, edges)
+	
+	startCells = SetStartCells(cells)
+	
+	--for i = 1, #startCells do
+	--	CellEcho(startCells[i])
+	--	CellEcho(startCells[i].mirror)
+	--end
+	
+	TerraformByCellHeightSmooth(cells, edges)
+	
+	local edgesSorted = Spring.Utilities.CopyTable(edges, false)
+	table.sort(edgesSorted, CompareLengthSq)
+	
+	--for i = 1, #cells do
+	--	local cell = cells[i]
+	--	local info = ""
+	--	for j = 1, #cell.neighbours do
+	--		info = info .. cell.neighbours[j].index .. ", "
+	--	end
+	--	PointEcho(cell.site, "Cell: " .. i .. " - " .. info)
+	--end
+	--
+	--for i = 1, #edges do
+	--	local edge = edges[i]
+	--	local info = "A: "
+	--	for j = 1, #edge.neighbours[1] do
+	--		info = info .. edge.neighbours[1][j].index .. ", "
+	--	end
+	--	info = info .. "B: "
+	--	for j = 1, #edge.neighbours[2] do
+	--		info = info .. edge.neighbours[2][j].index .. ", "
+	--	end
+	--	LineEcho(edge, "Edge: " .. i .. " - " .. info)
+	--end
+	
 	
 	--Spring.Utilities.TableEcho(GetBoundedLineIntersection({{1,1}, {5, 3}}, {{3, 4}, {2, -3}}), "Intersect")
 	--Spring.Echo("DistanceToLineAlternateAlternate({0, 4}, {{0, 0}, {4, 4}})", DistanceToLineAlternateAlternate({0, 4}, {{0, 0}, {4, 4}}))
 	--Spring.Utilities.TableEcho(Project({0, 4}, {4,4}), "Project({0, 4}, {4,4})")
+	
+	--local point, line = {3, 1}, {{1,1}, {3,3}}
+	--local startToPos = Subtract(point, line[1])
+	--local startToEnd = Subtract(line[2], line[1])
+	--local normal, projection = Normal(startToPos, startToEnd)
+	--Spring.Utilities.TableEcho(normal, "normal")
+	--Spring.Utilities.TableEcho(projection, "projection")
 end
