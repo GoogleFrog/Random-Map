@@ -172,6 +172,10 @@ local function Normal(v1, v2)
 end
 
 local function GetMidpoint(p1, p2)
+	if not p2 then
+		p2 = p1[2]
+		p1 = p1[1]
+	end
 	local v = Subtract(p1, p2)
 	return Add(p2, Mult(0.5, v))
 end
@@ -180,18 +184,24 @@ local function IsPositiveIntersect(lineInt, lineMid, lineDir)
 	return Dot(Subtract(lineInt, lineMid), lineDir) > 0
 end
 
-local function DistanceToBoundedLine(point, line)
+local function DistanceToBoundedLineSq(point, line)
 	local startToPos = Subtract(point, line[1])
 	local startToEnd = Subtract(line[2], line[1])
 	local normal, projection = Normal(startToPos, startToEnd)
 	local projFactor = Dot(projection, startToEnd)
+	local normalFactor = Dot(normalFactor, startToEnd)
 	if projFactor < 0 then
 		return Dist(line[1], point)
 	end
 	if projFactor > 1 then
 		return Dist(line[2], point)
 	end
-	return AbsVal(Subtract(startToPos, normal))
+	return AbsValSq(Subtract(startToPos, normal)), normalFactor
+end
+
+local function DistanceToBoundedLine(point, line)
+	local distSq, normalFactor = DistanceToBoundedLineSq(point, line)
+	return sqrt(distSq), normalFactor
 end
 
 local function DistanceToLineSq(point, line)
@@ -352,42 +362,7 @@ end
 
 --------------------------------------------------------------------------------
 --------------------------------------------------------------------------------
--- Debug
-
-function PointEcho(point, text)
-	Spring.MarkerAddPoint(point[1], 0, point[2], text or "")
-end
-
-function LineEcho(line, text)
-	PointEcho(GetMidpoint(line[1], line[2]), text)
-end
-
-function LineDraw(p1, p2)
-	if p2 then
-		Spring.MarkerAddLine(p1[1], 0, p1[2], p2[1], 0, p2[2], true)
-	else
-		Spring.MarkerAddLine(p1[1][1], 0, p1[1][2], p1[2][1], 0, p1[2][2], true)
-		Spring.MarkerAddLine(p1[2][1] + 20, 0, p1[2][2], p1[2][1] - 20, 0, p1[2][2], true)
-		Spring.MarkerAddLine(p1[2][1], 0, p1[2][2] + 20, p1[2][1], 0, p1[2][2] - 20, true)
-	end
-end
-
-function CellEcho(cell)
-	PointEcho(cell.site, "Cell: " .. cell.index .. ", edges: " .. #cell.edges)
-	for k = 1, #cell.edges do
-		LineDraw(cell.edges[k])
-		--PointEcho(Add(thisCell.edges[k][1], {i*16, 0}), i)
-	end
-end
-
---------------------------------------------------------------------------------
---------------------------------------------------------------------------------
--- Voronoi
-
-local function GetBoundedLine(pos, dir, bounder)
-	local line = {Add(pos, Mult(50*MAP_X, dir)), Add(pos, Mult(-50*MAP_X, dir))}
-	return line
-end
+-- Baked Tables
 
 local OUTER_POINTS = {
 	{ -4*MAP_X,  -4*MAP_Z},
@@ -402,6 +377,22 @@ local MAP_BORDER = {
 	{{    0, -10*MAP_Z}, {    0, 10*MAP_Z}},
 	{{MAP_X, -10*MAP_Z}, {MAP_X, 10*MAP_Z}},
 }
+
+local CIRCLE_POINTS = {}
+for i = pi, pi*3/2 + pi/80, pi/40 do
+	CIRCLE_POINTS[#CIRCLE_POINTS + 1] = {1 + cos(i), 1 + sin(i)}
+end
+
+local STRAIGHT_EDGE_POINTS = 18
+
+--------------------------------------------------------------------------------
+--------------------------------------------------------------------------------
+-- Voronoi
+
+local function GetBoundedLine(pos, dir, bounder)
+	local line = {Add(pos, Mult(50*MAP_X, dir)), Add(pos, Mult(-50*MAP_X, dir))}
+	return line
+end
 
 local function GetBoundingCells()
 	local cells = {}
@@ -850,7 +841,7 @@ local function GetPointHeight(cells, edges, point)
 	local cellIndex = GetPointCell(point, cells)
 	local cell = cells[cellIndex]
 	local edgeIndex = GetClosestLine(point, cell.edges)
-	local edge, edgeDistSq = cell.edges[edgeIndex]
+	local edge = cell.edges[edgeIndex]
 	
 	local startToPoint = Subtract(point, edge[1])
 	
@@ -870,32 +861,36 @@ local function GetPointHeight(cells, edges, point)
 		if not (otherEdge.otherFace[cellIndex]) then
 			return cell.height
 		end
-		edge = otherEdge
-		startToPoint = Subtract(point, edge[1])
-		projFactor = Dot(startToPoint, edge.unit)/edge.length
-		return MakeSingleEdgeSlope(cell, cellIndex, projFactor, edge, startToPoint)
+		return cell.height
+		--edge = otherEdge
+		--startToPoint = Subtract(point, edge[1])
+		--projFactor = Dot(startToPoint, edge.unit)/edge.length
+		--return MakeSingleEdgeSlope(cell, cellIndex, projFactor, edge, startToPoint)
 	end
 	
 	if not (otherEdge.otherFace[cellIndex]) then
-		return MakeSingleEdgeSlope(cell, cellIndex, projFactor, edge, startToPoint)
+		return cell.height
+		--return MakeSingleEdgeSlope(cell, cellIndex, projFactor, edge, startToPoint)
 	end
 	
 	local cellTeir = cell.teir
 	local topOfCliff = (cellTeir > edge.otherFace[cellIndex].teir and cellTeir > otherEdge.otherFace[cellIndex].teir)
-	local bottomOfCliff = (cellTeir < edge.otherFace[cellIndex].teir and cellTeir < otherEdge.otherFace[cellIndex].teir and edge.otherFace[cellIndex].teir == otherEdge.otherFace[cellIndex].teir)
+	local bottomOfCliff = (cellTeir < edge.otherFace[cellIndex].teir and cellTeir < otherEdge.otherFace[cellIndex].teir)
 	
 	if not (topOfCliff or bottomOfCliff) then
 		return cell.height
 	end
 	
+	local otherHeight = edge.otherFace[cellIndex].height
+	if topOfCliff then
+		otherHeight = math.max(edge.otherFace[cellIndex].height, otherEdge.otherFace[cellIndex].height)
+	elseif bottomOfCliff then
+		otherHeight = math.min(edge.otherFace[cellIndex].height, otherEdge.otherFace[cellIndex].height)
+	end
+	
 	local intPoint = edge[edgeIncidence]
 	local intToPoint = Subtract(point, intPoint)
 	local otherIncidence = edge.incidentEnd[otherEdge.index]
-	
-	local otherProjFactor = Dot(intToPoint, otherEdge.unit)/otherEdge.length
-	if otherIncidence == 2 then
-		otherProjFactor = 1 - otherProjFactor
-	end
 	
 	local edgeOut = Mult((-edgeIncidence + 1.5)*edge.length, edge.unit)
 	local otherOut = Mult((-otherIncidence + 1.5)*otherEdge.length, otherEdge.unit)
@@ -912,7 +907,7 @@ local function GetPointHeight(cells, edges, point)
 		return cell.height
 	end
 	
-	return edge.otherFace[cellIndex].height
+	return otherHeight
 end
 
 local function TerraformByCellHeightSmooth(cells, edges)
@@ -949,6 +944,159 @@ local function TerraformByCellHeight(cells)
 	Spring.SetHeightMapFunc(DoTerra)
 end
 
+local function TerraformByHeights(heights)
+	local function DoTerra()
+		for x = 0, MAP_X, SQUARE_SIZE do
+			for z = 0, MAP_Z, SQUARE_SIZE do
+				spSetHeightMap(x, z, heights[x][z])
+			end
+			Spring.ClearWatchDogTimer()
+		end
+	end
+
+	Spring.SetHeightMapFunc(DoTerra)
+end
+
+local function InitCoordHeight(cells, edges)
+	local heights = {}
+	local point = {0, 0}
+	for x = 0, MAP_X, SQUARE_SIZE do
+		heights[x] = {}
+		for z = 0, MAP_Z, SQUARE_SIZE do
+			point[1], point[2] = x, z
+			heights[x][z] = GetPointHeight(cells, edges, point)
+		end
+		Spring.ClearWatchDogTimer()
+	end
+	
+	return heights
+end
+
+--------------------------------------------------------------------------------
+--------------------------------------------------------------------------------
+-- Process Edges
+
+local function GetHalfEdgeLine(edge, intPoint)
+	local intOut = Unit(Subtract(GetMidpoint(edge), intPoint))
+	for i = 0, STRAIGHT_EDGE_POINTS do
+		local point = Add(intPoint, Mult(i*edge.length/(2*STRAIGHT_EDGE_POINTS), intOut))
+		PointEcho(point, i)
+	end
+end
+
+local function GetLineHeightModifiers(curve, width, cell.height, otherHeight)
+	DistanceToBoundedLineSq
+end
+
+local function GetCurveHeightModifiers(curve, width, cell.height, otherHeight)
+	DistanceToBoundedLineSq
+end
+
+local function GetEdgeBoundary(heightModifiers, cells, cell, edge, otherEdge, edgeIncidence)
+	local cellIndex = cell.index
+	local intPoint = edge[edgeIncidence]
+	if not (edge.otherFace[cellIndex]) then
+		if not (otherEdge.otherFace[cellIndex]) then
+			return
+		end
+		if cell.teir == otherEdge.otherFace[cellIndex].teir then
+			return
+		end
+		return GetHalfEdgeLine(otherEdge, intPoint)
+	end
+	
+	if not (otherEdge.otherFace[cellIndex]) then
+		if cell.teir == edge.otherFace[cellIndex].teir then
+			return
+		end
+		return GetHalfEdgeLine(edge, intPoint)
+	end
+	
+	local cellTeir = cell.teir
+	local topOfCliff = (cellTeir > edge.otherFace[cellIndex].teir and cellTeir > otherEdge.otherFace[cellIndex].teir)
+	local bottomOfCliff = (cellTeir < edge.otherFace[cellIndex].teir and cellTeir < otherEdge.otherFace[cellIndex].teir)
+	local doubleCliff = bottomOfCliff and edge.otherFace[cellIndex].teir ~= otherEdge.otherFace[cellIndex].teir
+	
+	if not (topOfCliff or bottomOfCliff) then
+		return
+	end
+	
+	local otherHeight = edge.otherFace[cellIndex].height
+	if topOfCliff then
+		otherHeight = math.max(edge.otherFace[cellIndex].height, otherEdge.otherFace[cellIndex].height)
+	elseif bottomOfCliff then
+		otherHeight = math.min(edge.otherFace[cellIndex].height, otherEdge.otherFace[cellIndex].height)
+	end
+	
+	local otherIncidence = edge.incidentEnd[otherEdge.index]
+	
+	local edgeOut = Mult((-edgeIncidence + 1.5)*edge.length, edge.unit)
+	local otherOut = Mult((-otherIncidence + 1.5)*otherEdge.length, otherEdge.unit)
+	
+	local curve = {}
+	for i = 1, #CIRCLE_POINTS do
+		curve[#curve + 1] = Add(intPoint, ChangeBasis(CIRCLE_POINTS[i], edgeOut[1], otherOut[1], edgeOut[2], otherOut[2]))
+		PointEcho(point, i)
+	end
+	
+	local modifiers = GetCurveHeightModifiers(curve, width, cell.height, otherHeight)
+	
+	return
+end
+
+local function GetSharedCell(edge, other)
+	if (edge.faces[1].index == other.faces[1].index) or (other.faces[2] and (edge.faces[1].index == other.faces[2].index)) then
+		return edge.faces[1]
+	end
+	
+	if edge.faces[2] and ((edge.faces[2].index == other.faces[1].index) or (other.faces[2] and (edge.faces[2].index == other.faces[2].index))) then
+		return edge.faces[2]
+	end
+	
+	return false
+end
+
+local function ProcessEdges(cells, edges)
+	local heightModifiers = {}
+	for i = 1, #edges do
+		local thisEdge = edges[i]
+		for n = 1, #thisEdge.neighbours do
+			local nbhd = thisEdge.neighbours[n]
+			for j = 1, #nbhd do
+				local otherEdge = nbhd[j]
+				if otherEdge.index < thisEdge.index then
+					GetEdgeBoundary(heightModifiers, cells, GetSharedCell(thisEdge, otherEdge), thisEdge, otherEdge, n)
+				end
+			end
+		end
+	end
+	
+	return heightModifiers
+end
+
+local function GenerateEdgePassability(cells, edges)
+
+end
+
+local function ApplyHeightModifiers(heights, teirs, teirHeight, heightModifiers)
+	for x = 0, MAP_X, SQUARE_SIZE do
+		for z = 0, MAP_Z, SQUARE_SIZE do
+			local thisTeir = teirs[x][z]
+			local teirData = heightModifiers[thisTeir]
+			local teirHeightMult = 0
+			
+			if teirData then
+				-- Update height from bottom to top
+				for otherTeir = heightModifiers.lowestTeir, heightModifiers.highestTeir do
+					local otherTeir = teirData[otherTeir]
+					-- Update the smallest change on each teir
+				end
+			end
+			-- Update the largest change from each of the teirs.
+		end
+	end
+	
+end
 
 --------------------------------------------------------------------------------
 --------------------------------------------------------------------------------
@@ -989,10 +1137,6 @@ local function GenerateCellTeirs(cells, waveFunc)
 	end
 end
 
-local function GenerateEdgePassability(cells, edges)
-
-end
-
 local function SetStartCells(cells)
 	local topLeftCell = cells[GetClosestCell({0, 0}, cells)]
 	local startCells = {topLeftCell}
@@ -1031,8 +1175,12 @@ function gadget:Initialize()
 	--	CellEcho(startCells[i])
 	--	CellEcho(startCells[i].mirror)
 	--end
+	local heights = InitCoordHeight(cells, edges)
+	local heightModifiers = ProcessEdges(cells, edges)
 	
-	TerraformByCellHeightSmooth(cells, edges)
+	ApplyHeightModifiers(heights, heightModifiers)
+	
+	TerraformByHeights(heights)
 	
 	local edgesSorted = Spring.Utilities.CopyTable(edges, false)
 	table.sort(edgesSorted, CompareLengthSq)
@@ -1070,4 +1218,34 @@ function gadget:Initialize()
 	--local normal, projection = Normal(startToPos, startToEnd)
 	--Spring.Utilities.TableEcho(normal, "normal")
 	--Spring.Utilities.TableEcho(projection, "projection")
+end
+
+--------------------------------------------------------------------------------
+--------------------------------------------------------------------------------
+-- Debug
+
+function PointEcho(point, text)
+	Spring.MarkerAddPoint(point[1], 0, point[2], text or "")
+end
+
+function LineEcho(line, text)
+	PointEcho(GetMidpoint(line[1], line[2]), text)
+end
+
+function LineDraw(p1, p2)
+	if p2 then
+		Spring.MarkerAddLine(p1[1], 0, p1[2], p2[1], 0, p2[2], true)
+	else
+		Spring.MarkerAddLine(p1[1][1], 0, p1[1][2], p1[2][1], 0, p1[2][2], true)
+		Spring.MarkerAddLine(p1[2][1] + 20, 0, p1[2][2], p1[2][1] - 20, 0, p1[2][2], true)
+		Spring.MarkerAddLine(p1[2][1], 0, p1[2][2] + 20, p1[2][1], 0, p1[2][2] - 20, true)
+	end
+end
+
+function CellEcho(cell)
+	PointEcho(cell.site, "Cell: " .. cell.index .. ", edges: " .. #cell.edges)
+	for k = 1, #cell.edges do
+		LineDraw(cell.edges[k])
+		--PointEcho(Add(thisCell.edges[k][1], {i*16, 0}), i)
+	end
 end
