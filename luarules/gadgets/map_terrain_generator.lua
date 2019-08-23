@@ -29,12 +29,16 @@ local SQUARE_SIZE = Game.squareSize
 
 local spSetHeightMap = Spring.SetHeightMap
 
-local sqrt = math.sqrt
-local pi   = math.pi
-local cos  = math.cos
-local sin  = math.sin
-local abs  = math.abs
-local log  = math.log
+local sqrt  = math.sqrt
+local pi    = math.pi
+local cos   = math.cos
+local sin   = math.sin
+local abs   = math.abs
+local log   = math.log
+local floor = math.floor
+local ceil  = math.ceil
+local min   = math.min
+local max   = math.max
 
 --------------------------------------------------------------------------------
 --------------------------------------------------------------------------------
@@ -360,6 +364,10 @@ local function InMapBounds(point)
 	return not (point[1] < 0 or point[2] < 0 or point[1] > MAP_X or point[2] > MAP_Z)
 end
 
+local function GetPosIndex(x, z)
+	return x + (MAP_X + 1)*z
+end
+
 --------------------------------------------------------------------------------
 --------------------------------------------------------------------------------
 -- Baked Tables
@@ -378,8 +386,9 @@ local MAP_BORDER = {
 	{{MAP_X, -10*MAP_Z}, {MAP_X, 10*MAP_Z}},
 }
 
+local POINT_COUNT = 5
 local CIRCLE_POINTS = {}
-for i = pi, pi*3/2 + pi/80, pi/40 do
+for i = pi, pi*3/2 + pi/(4*POINT_COUNT), pi/(2*POINT_COUNT) do
 	CIRCLE_POINTS[#CIRCLE_POINTS + 1] = {1 + cos(i), 1 + sin(i)}
 end
 
@@ -861,7 +870,7 @@ local function GetPointHeight(cells, edges, point)
 		if not (otherEdge.otherFace[cellIndex]) then
 			return cell.height
 		end
-		return cell.height
+		return cell.height, cell.index
 		--edge = otherEdge
 		--startToPoint = Subtract(point, edge[1])
 		--projFactor = Dot(startToPoint, edge.unit)/edge.length
@@ -869,7 +878,7 @@ local function GetPointHeight(cells, edges, point)
 	end
 	
 	if not (otherEdge.otherFace[cellIndex]) then
-		return cell.height
+		return cell.height, cell.index
 		--return MakeSingleEdgeSlope(cell, cellIndex, projFactor, edge, startToPoint)
 	end
 	
@@ -878,7 +887,7 @@ local function GetPointHeight(cells, edges, point)
 	local bottomOfCliff = (cellTeir < edge.otherFace[cellIndex].teir and cellTeir < otherEdge.otherFace[cellIndex].teir)
 	
 	if not (topOfCliff or bottomOfCliff) then
-		return cell.height
+		return cell.height, cell.index
 	end
 	
 	local otherHeight = edge.otherFace[cellIndex].height
@@ -899,15 +908,15 @@ local function GetPointHeight(cells, edges, point)
 	local rotPoint = ChangeBasis(intToPoint, m1, m2, m3, m4)
 
 	if rotPoint[1] > 1 or rotPoint[2] > 1 then
-		return cell.height
+		return cell.height, cell.index
 	end
 	
 	local dist = sqrt((rotPoint[1] - 1)^2 + (rotPoint[2] - 1)^2)
 	if dist < 1 then
-		return cell.height
+		return cell.height, cell.index
 	end
 	
-	return otherHeight
+	return otherHeight, cell.index
 end
 
 local function TerraformByCellHeightSmooth(cells, edges)
@@ -959,17 +968,19 @@ end
 
 local function InitCoordHeight(cells, edges)
 	local heights = {}
+	local coordCellIndex = {}
 	local point = {0, 0}
 	for x = 0, MAP_X, SQUARE_SIZE do
 		heights[x] = {}
+		coordCellIndex[x] = {}
 		for z = 0, MAP_Z, SQUARE_SIZE do
 			point[1], point[2] = x, z
-			heights[x][z] = GetPointHeight(cells, edges, point)
+			heights[x][z], coordCellIndex[x][z] = GetPointHeight(cells, edges, point)
 		end
 		Spring.ClearWatchDogTimer()
 	end
 	
-	return heights
+	return heights, coordCellIndex
 end
 
 --------------------------------------------------------------------------------
@@ -984,17 +995,88 @@ local function GetHalfEdgeLine(edge, intPoint)
 	end
 end
 
-local function GetLineHeightModifiers(curve, width, cell.height, otherHeight)
-	DistanceToBoundedLineSq
+local function MakeEdgeSlope(tangDist, projDist, width, mag)
+	if tangDist < -width then
+		return
+	end
+	if tangDist > width then
+		return
+	end
+	
+	local change = (1 - cos(pi*(tangDist/2 + width/2)/width))/2
+	if change > 0.5 then
+		return false, (1 - change)*mag
+	else
+		return change*mag, false
+	end
 end
 
-local function GetCurveHeightModifiers(curve, width, cell.height, otherHeight)
-	DistanceToBoundedLineSq
+local function ApplyLineDistanceFunc(heights, coordCellIndex, heightModUp, heightModDown, lineStart, lineEnd, func, width, funcMag, flip)
+	-- heightModUp, heightModDown are tables of height changes, modified as a side effect of this function
+	local left  = floor((min(lineStart[1], lineEnd[1]) - width)/8)*8
+	local right =  ceil((min(lineStart[1], lineEnd[1]) + width)/8)*8
+	local top   = floor((min(lineStart[2], lineEnd[2]) - width)/8)*8
+	local bot   =  ceil((min(lineStart[2], lineEnd[2]) + width)/8)*8
+
+	local lineVector = Subtract(lineEnd, lineStart)
+	local unitProjection = Unit(lineVector)
+	local unitTanget = RotateLeft(unitProjection)
+	local pdx, pdz = unitProjection[1], unitProjection[2]
+	local tdx, tdz = unitTanget[1], unitTanget[2]
+	local ox, oz = lineStart[1], lineStart[2]
+	local ex, ez = lineEnd[1], lineEnd[2]
+	
+	local lineLength = AbsVal(lineVector)
+	
+	for x = left, right, 8 do
+		for z = top, bot, 8 do
+			local vx, vz = x - ox, z - oz
+			local projDist = vx*pdx + vz*pdz
+			local tangDist = vx*tdx + vz*tdz
+			if projDist < 0 then
+				tangDist = ((tangDist > 0 and 1) or -1)*sqrt(vx^2+ vz^2)
+			elseif projDist > lineLength then
+				tangDist = ((tangDist > 0 and 1) or -1)*sqrt((x - ex)^2+ (z - ez)^2)
+			else
+			
+			end
+			
+			if flip then
+				tangDist = -tangDist
+			end
+			
+			local up, down = func(tangDist, projDist, width, funcMag)
+			local posIndex = GetPosIndex(x, z)
+			if up and ((not heightModUp[posIndex]) or heightModUp[posIndex] < up) then
+				heightModUp[posIndex] = up
+			end
+			if down and ((not heightModDown[posIndex]) or heightModDown[posIndex] < down) then
+				heightModDown[posIndex] = down
+			end
+		end
+	end
 end
 
-local function GetEdgeBoundary(heightModifiers, cells, cell, edge, otherEdge, edgeIncidence)
+local function GetLineHeightModifiers(heights, coordCellIndex, cellIndex, heightModUp, heightModDown, point, unit, mag, width, cellHeight, otherHeight)
+	local diff = abs(cellHeight - otherHeight)
+	ApplyLineDistanceFunc(heights, coordCellIndex,heightModUp, heightModDown, point, Add(point, Mult(mag, unit)), MakeEdgeSlope, width, diff)
+end
+
+local function GetCurveHeightModifiers(heights, coordCellIndex, cellIndex, heightModUp, heightModDown, curve, width, cellHeight, otherHeight, flip)
+	local diff = abs(cellHeight - otherHeight)
+	for i = 1, #curve - 1 do
+		ApplyLineDistanceFunc(heights, coordCellIndex, heightModUp, heightModDown, curve[i], curve[i + 1], MakeEdgeSlope, width, diff, flip)
+	end
+end
+
+local function GetEdgeBoundary(heights, coordCellIndex, heightModUp, heightModDown, cells, cell, edge, otherEdge, edgeIncidence)
 	local cellIndex = cell.index
 	local intPoint = edge[edgeIncidence]
+	
+	local otherIncidence = edge.incidentEnd[otherEdge.index]
+	local edgeOut  = Mult((-edgeIncidence  + 1.5)*edge.length,      edge.unit)
+	local otherOut = Mult((-otherIncidence + 1.5)*otherEdge.length, otherEdge.unit)
+	
 	if not (edge.otherFace[cellIndex]) then
 		if not (otherEdge.otherFace[cellIndex]) then
 			return
@@ -1002,14 +1084,18 @@ local function GetEdgeBoundary(heightModifiers, cells, cell, edge, otherEdge, ed
 		if cell.teir == otherEdge.otherFace[cellIndex].teir then
 			return
 		end
-		return GetHalfEdgeLine(otherEdge, intPoint)
+		GetLineHeightModifiers(heights, coordCellIndex, cellIndex, heightModUp, heightModDown, intPoint, otherOut, otherEdge.length/2, 150, cell.height, otherEdge.otherFace[cellIndex].height)
+		GetHalfEdgeLine(otherEdge, intPoint)
+		return
 	end
 	
 	if not (otherEdge.otherFace[cellIndex]) then
 		if cell.teir == edge.otherFace[cellIndex].teir then
 			return
 		end
-		return GetHalfEdgeLine(edge, intPoint)
+		GetLineHeightModifiers(heights, coordCellIndex, cellIndex, heightModUp, heightModDown, intPoint, edgeOut, edge.length/2, 150, cell.height, edge.otherFace[cellIndex].height)
+		GetHalfEdgeLine(edge, intPoint)
+		return
 	end
 	
 	local cellTeir = cell.teir
@@ -1021,27 +1107,18 @@ local function GetEdgeBoundary(heightModifiers, cells, cell, edge, otherEdge, ed
 		return
 	end
 	
-	local otherHeight = edge.otherFace[cellIndex].height
-	if topOfCliff then
-		otherHeight = math.max(edge.otherFace[cellIndex].height, otherEdge.otherFace[cellIndex].height)
-	elseif bottomOfCliff then
-		otherHeight = math.min(edge.otherFace[cellIndex].height, otherEdge.otherFace[cellIndex].height)
-	end
-	
-	local otherIncidence = edge.incidentEnd[otherEdge.index]
-	
-	local edgeOut = Mult((-edgeIncidence + 1.5)*edge.length, edge.unit)
-	local otherOut = Mult((-otherIncidence + 1.5)*otherEdge.length, otherEdge.unit)
+	local otherHeight = (topOfCliff    and max(edge.otherFace[cellIndex].height, otherEdge.otherFace[cellIndex].height)) or
+	                    (bottomOfCliff and min(edge.otherFace[cellIndex].height, otherEdge.otherFace[cellIndex].height))
 	
 	local curve = {}
 	for i = 1, #CIRCLE_POINTS do
 		curve[#curve + 1] = Add(intPoint, ChangeBasis(CIRCLE_POINTS[i], edgeOut[1], otherOut[1], edgeOut[2], otherOut[2]))
-		PointEcho(point, i)
+		PointEcho(curve[#curve], i)
 	end
 	
-	local modifiers = GetCurveHeightModifiers(curve, width, cell.height, otherHeight)
+	PointEcho(intPoint, "Inc " .. edgeIncidence .. ", " .. cell.height .. ", " .. otherHeight)
 	
-	return
+	GetCurveHeightModifiers(heights, coordCellIndex, cellIndex, heightModUp, heightModDown, curve, 150, cell.height, otherHeight, cell.height > otherHeight)
 end
 
 local function GetSharedCell(edge, other)
@@ -1056,8 +1133,8 @@ local function GetSharedCell(edge, other)
 	return false
 end
 
-local function ProcessEdges(cells, edges)
-	local heightModifiers = {}
+local function ProcessEdges(cells, edges, heights, coordCellIndex)
+	local heightModUp, heightModDown = {}, {}
 	for i = 1, #edges do
 		local thisEdge = edges[i]
 		for n = 1, #thisEdge.neighbours do
@@ -1065,37 +1142,26 @@ local function ProcessEdges(cells, edges)
 			for j = 1, #nbhd do
 				local otherEdge = nbhd[j]
 				if otherEdge.index < thisEdge.index then
-					GetEdgeBoundary(heightModifiers, cells, GetSharedCell(thisEdge, otherEdge), thisEdge, otherEdge, n)
+					GetEdgeBoundary(heights, coordCellIndex, heightModUp, heightModDown, cells, GetSharedCell(thisEdge, otherEdge), thisEdge, otherEdge, n)
 				end
 			end
 		end
 	end
 	
-	return heightModifiers
+	return heightModUp, heightModDown
 end
 
 local function GenerateEdgePassability(cells, edges)
 
 end
 
-local function ApplyHeightModifiers(heights, teirs, teirHeight, heightModifiers)
+local function ApplyHeightModifiers(heights, heightModUp, heightModDown)
 	for x = 0, MAP_X, SQUARE_SIZE do
 		for z = 0, MAP_Z, SQUARE_SIZE do
-			local thisTeir = teirs[x][z]
-			local teirData = heightModifiers[thisTeir]
-			local teirHeightMult = 0
-			
-			if teirData then
-				-- Update height from bottom to top
-				for otherTeir = heightModifiers.lowestTeir, heightModifiers.highestTeir do
-					local otherTeir = teirData[otherTeir]
-					-- Update the smallest change on each teir
-				end
-			end
-			-- Update the largest change from each of the teirs.
+			local posIndex = GetPosIndex(x, z)
+			heights[x][z] = heights[x][z] + (heightModUp[posIndex] or 0) - (heightModDown[posIndex] or 0)
 		end
 	end
-	
 end
 
 --------------------------------------------------------------------------------
@@ -1175,10 +1241,10 @@ function gadget:Initialize()
 	--	CellEcho(startCells[i])
 	--	CellEcho(startCells[i].mirror)
 	--end
-	local heights = InitCoordHeight(cells, edges)
-	local heightModifiers = ProcessEdges(cells, edges)
+	local heights, coordCellIndex = InitCoordHeight(cells, edges)
+	local heightModUp, heightModDown = ProcessEdges(cells, edges, heights, coordCellIndex)
 	
-	ApplyHeightModifiers(heights, heightModifiers)
+	ApplyHeightModifiers(heights, heightModUp, heightModDown)
 	
 	TerraformByHeights(heights)
 	
