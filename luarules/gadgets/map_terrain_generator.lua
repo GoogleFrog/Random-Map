@@ -135,8 +135,12 @@ local function Dot(v1, v2)
 	end
 end
 
-function Cross(v1, v2)
+local function Cross(v1, v2)
 	return {v1[2]*v2[3] - v1[3]*v2[2], v1[3]*v2[1] - v1[1]*v2[3], v1[1]*v2[2] - v1[2]*v2[1]}
+end
+
+local function Cross_TwoDimensions(v1, v2)
+	return v1[1]*v2[2] - v1[2]*v2[1]
 end
 
 local function Angle(x,z)
@@ -386,7 +390,7 @@ local MAP_BORDER = {
 	{{MAP_X, -10*MAP_Z}, {MAP_X, 10*MAP_Z}},
 }
 
-local POINT_COUNT = 5
+local POINT_COUNT = 15
 local CIRCLE_POINTS = {}
 for i = pi, pi*3/2 + pi/(4*POINT_COUNT), pi/(2*POINT_COUNT) do
 	CIRCLE_POINTS[#CIRCLE_POINTS + 1] = {1 + cos(i), 1 + sin(i)}
@@ -576,6 +580,7 @@ local function CleanVoronoiReferences(cells)
 			[1] = {},
 			[2] = {},
 		}
+		thisEdge.clockwiseNeighbour = {}
 		thisEdge.incidentEnd = {}
 		
 		for j = 1, #thisEdge.faces do
@@ -585,9 +590,10 @@ local function CleanVoronoiReferences(cells)
 				if otherEdge.index ~= thisEdge.index then
 					for n = 1, #thisEdge.neighbours do
 						local thisNbhd = thisEdge.neighbours[n]
-						local otherIncidentEnd = (SamePoint(thisEdge[n], otherEdge[1]) and 1) or (SamePoint(thisEdge[n], otherEdge[2]) and 2)
-						if otherIncidentEnd then
-							thisEdge.incidentEnd[otherEdge.index] = otherIncidentEnd
+						local otherN = (SamePoint(thisEdge[n], otherEdge[1]) and 1) or (SamePoint(thisEdge[n], otherEdge[2]) and 2)
+						if otherN then
+							thisEdge.clockwiseNeighbour[otherEdge.index] = Cross_TwoDimensions(Subtract(thisEdge[3 - n], thisEdge[n]), Subtract(otherEdge[3 - otherN], otherEdge[otherN])) > 0
+							thisEdge.incidentEnd[otherEdge.index] = otherN
 							thisNbhd[#thisNbhd + 1] = otherEdge
 							if (otherEdge.faces[1].index ~= thisEdge.faces[1].index) and (otherEdge.faces[1].index ~= (thisEdge.faces[2] and thisEdge.faces[2].index)) then
 								thisNbhd.endFace = otherEdge.faces[1]
@@ -957,7 +963,7 @@ local function TerraformByHeights(heights)
 	local function DoTerra()
 		for x = 0, MAP_X, SQUARE_SIZE do
 			for z = 0, MAP_Z, SQUARE_SIZE do
-				spSetHeightMap(x, z, heights[x][z])
+				spSetHeightMap(x, z, heights[x][z] or 600)
 			end
 			Spring.ClearWatchDogTimer()
 		end
@@ -975,12 +981,65 @@ local function InitCoordHeight(cells, edges)
 		coordCellIndex[x] = {}
 		for z = 0, MAP_Z, SQUARE_SIZE do
 			point[1], point[2] = x, z
-			heights[x][z], coordCellIndex[x][z] = GetPointHeight(cells, edges, point)
+			--heights[x][z], coordCellIndex[x][z] = GetPointHeight(cells, edges, point)
+			heights[x][z] = 30
 		end
 		Spring.ClearWatchDogTimer()
 	end
 	
 	return heights, coordCellIndex
+end
+
+--------------------------------------------------------------------------------
+--------------------------------------------------------------------------------
+-- Floodfill handler
+
+
+local function GetFloodfillHandler()
+	local values = {}
+	local influenceDist = {}
+	local fillX = {}
+	local fillZ = {}
+	
+	local ORTH_X = {-8,  0, 8, 0}
+	local ORTH_Z = { 0, -8, 0, 8}
+	
+	local function CheckAndFillNearby(x, z, val)
+		for i = 1, 4 do
+			local nx, nz = x + ORTH_X[i], z + ORTH_Z[i]
+			if (nx >= 0 and nz >= 0 and nx <= MAP_X and nz <= MAP_Z) and not (values[nx] and values[nx][nz]) then
+				values[nx] = values[nx] or {}
+				values[nx][nz] = val
+				fillX[#fillX + 1] = nx
+				fillZ[#fillZ + 1] = nz
+			end
+		end
+	end
+	
+	local externalFuncs = {}
+	
+	function externalFuncs.AddHeight(x, z, val, dist)
+		if (x >= 0 and z >= 0 and x <= MAP_X and z <= MAP_Z) and ((not (influenceDist[x] and influenceDist[x][z])) or (dist < influenceDist[x][z])) then
+			influenceDist[x] = influenceDist[x] or {}
+			influenceDist[x][z] = dist
+			values[x] = values[x] or {}
+			values[x][z] = val
+			
+			fillX[#fillX + 1] = x
+			fillZ[#fillZ + 1] = z
+		end
+	end
+	
+	function externalFuncs.RunFloodfillAndGetValues()
+		while #fillX > 0 do
+			local x, z = fillX[#fillX], fillZ[#fillZ]
+			fillX[#fillX], fillZ[#fillZ] = nil, nil
+			CheckAndFillNearby(x, z, values[x][z])
+		end
+		return values
+	end
+	
+	return externalFuncs
 end
 
 --------------------------------------------------------------------------------
@@ -995,7 +1054,7 @@ local function GetHalfEdgeLine(edge, intPoint)
 	end
 end
 
-local function MakeEdgeSlope(tangDist, projDist, width, mag)
+local function MakeEdgeSlope(tangDist, projDist, length, width, overshootStart)
 	if tangDist < -width then
 		return
 	end
@@ -1003,20 +1062,36 @@ local function MakeEdgeSlope(tangDist, projDist, width, mag)
 		return
 	end
 	
-	local change = (1 - cos(pi*(tangDist/2 + width/2)/width))/2
+	local dist = abs(tangDist)
+	local sign = ((tangDist > 0) and 1) or -1
+	if (projDist < 0 and (not overshootStart)) or projDist > length then
+		local offDist = ((projDist < 0) and -projDist) or (projDist - length)
+		if offDist > dist/2 then
+			-- Ignore low angles
+			return
+		end
+		dist = sqrt(offDist^2 + dist^2)
+		if dist > width then
+			return
+		end
+	end
+	
+	local change = (1 - cos(pi*(sign*dist/2 + width/2)/width))/2
 	if change > 0.5 then
-		return false, (1 - change)*mag
+		return false, (1 - change)
 	else
-		return change*mag, false
+		return change, false
 	end
 end
 
-local function ApplyLineDistanceFunc(heights, coordCellIndex, heightModUp, heightModDown, lineStart, lineEnd, func, width, funcMag, flip)
+local function ApplyLineDistanceFunc(teirFlood, cellTeir, otherTeir, heightModUp, heightModDown, lineStart, lineEnd, func, width, otherClockwise, flip, overshootStart)
 	-- heightModUp, heightModDown are tables of height changes, modified as a side effect of this function
 	local left  = floor((min(lineStart[1], lineEnd[1]) - width)/8)*8
-	local right =  ceil((min(lineStart[1], lineEnd[1]) + width)/8)*8
+	local right =  ceil((max(lineStart[1], lineEnd[1]) + width)/8)*8
 	local top   = floor((min(lineStart[2], lineEnd[2]) - width)/8)*8
-	local bot   =  ceil((min(lineStart[2], lineEnd[2]) + width)/8)*8
+	local bot   =  ceil((max(lineStart[2], lineEnd[2]) + width)/8)*8
+	
+	Spring.Echo("lineStart", lineStart[1], lineStart[2], "lineEnd", lineEnd[1], lineEnd[2])
 
 	local lineVector = Subtract(lineEnd, lineStart)
 	local unitProjection = Unit(lineVector)
@@ -1028,54 +1103,71 @@ local function ApplyLineDistanceFunc(heights, coordCellIndex, heightModUp, heigh
 	
 	local lineLength = AbsVal(lineVector)
 	
+	otherClockwise = ((otherClockwise and true) or false)
+	
+	local lt, ht = min(cellTeir, otherTeir), max(cellTeir, otherTeir)
+	heightModUp[lt] = heightModUp[lt] or {}
+	heightModUp[lt][ht] = heightModUp[lt][ht] or {}
+	heightModDown[lt] = heightModDown[lt] or {}
+	heightModDown[lt][ht] = heightModDown[lt][ht] or {}
+	
+	local thisModUp = heightModUp[lt][ht]
+	local thisModDown = heightModDown[lt][ht]
+	Spring.Echo("lt, ht", lt, ht)
+	
 	for x = left, right, 8 do
 		for z = top, bot, 8 do
 			local vx, vz = x - ox, z - oz
 			local projDist = vx*pdx + vz*pdz
 			local tangDist = vx*tdx + vz*tdz
-			if projDist < 0 then
-				tangDist = ((tangDist > 0 and 1) or -1)*sqrt(vx^2+ vz^2)
-			elseif projDist > lineLength then
-				tangDist = ((tangDist > 0 and 1) or -1)*sqrt((x - ex)^2+ (z - ez)^2)
-			else
 			
+			local tangDistAbs = abs(tangDist)
+			if projDist > -8 and projDist < lineLength + 8 and tangDistAbs < 32 then
+				if projDist < 0 then
+					tangDistAbs = tangDistAbs - projDist*3
+				elseif projDist > lineLength then
+					tangDistAbs = tangDistAbs + (projDist - lineLength)*3
+				end
+				
+				teirFlood.AddHeight(x, z, ((otherClockwise == (tangDist > 0)) and cellTeir) or otherTeir, tangDistAbs)
 			end
 			
 			if flip then
 				tangDist = -tangDist
 			end
 			
-			local up, down = func(tangDist, projDist, width, funcMag)
+			local up, down = func(tangDist, projDist, lineLength, width, overshootStart)
 			local posIndex = GetPosIndex(x, z)
-			if up and ((not heightModUp[posIndex]) or heightModUp[posIndex] < up) then
-				heightModUp[posIndex] = up
+			if up and ((not thisModUp[posIndex]) or thisModUp[posIndex] < up) then
+				thisModUp[posIndex] = up
 			end
-			if down and ((not heightModDown[posIndex]) or heightModDown[posIndex] < down) then
-				heightModDown[posIndex] = down
+			if down and ((not thisModDown[posIndex]) or thisModDown[posIndex] < down) then
+				thisModDown[posIndex] = down
 			end
 		end
 	end
 end
 
-local function GetLineHeightModifiers(heights, coordCellIndex, cellIndex, heightModUp, heightModDown, point, unit, mag, width, cellHeight, otherHeight)
-	local diff = abs(cellHeight - otherHeight)
-	ApplyLineDistanceFunc(heights, coordCellIndex,heightModUp, heightModDown, point, Add(point, Mult(mag, unit)), MakeEdgeSlope, width, diff)
+local function GetLineHeightModifiers(teirFlood, cellTeir, otherTeir, heightModUp, heightModDown, startPoint, endPoint, width, otherClockwise, flip)
+	ApplyLineDistanceFunc(teirFlood, cellTeir, otherTeir, heightModUp, heightModDown, startPoint, endPoint, MakeEdgeSlope, width, otherClockwise, flip, true)
 end
 
-local function GetCurveHeightModifiers(heights, coordCellIndex, cellIndex, heightModUp, heightModDown, curve, width, cellHeight, otherHeight, flip)
-	local diff = abs(cellHeight - otherHeight)
+local function GetCurveHeightModifiers(teirFlood, cellTeir, otherTeir, heightModUp, heightModDown, curve, width, otherClockwise, flip)
 	for i = 1, #curve - 1 do
-		ApplyLineDistanceFunc(heights, coordCellIndex, heightModUp, heightModDown, curve[i], curve[i + 1], MakeEdgeSlope, width, diff, flip)
+		ApplyLineDistanceFunc(teirFlood, cellTeir, otherTeir, heightModUp, heightModDown, curve[i], curve[i + 1], MakeEdgeSlope, width, otherClockwise, flip)
 	end
 end
 
-local function GetEdgeBoundary(heights, coordCellIndex, heightModUp, heightModDown, cells, cell, edge, otherEdge, edgeIncidence)
+local function GetEdgeBoundary(teirFlood, heightModUp, heightModDown, cells, cell, edge, otherEdge, edgeIncidence)
 	local cellIndex = cell.index
 	local intPoint = edge[edgeIncidence]
 	
 	local otherIncidence = edge.incidentEnd[otherEdge.index]
 	local edgeOut  = Mult((-edgeIncidence  + 1.5)*edge.length,      edge.unit)
 	local otherOut = Mult((-otherIncidence + 1.5)*otherEdge.length, otherEdge.unit)
+	
+	local otherClockwise = (edge.clockwiseNeighbour[otherEdge.index])
+	local cellTeir = cell.teir
 	
 	if not (edge.otherFace[cellIndex]) then
 		if not (otherEdge.otherFace[cellIndex]) then
@@ -1084,8 +1176,13 @@ local function GetEdgeBoundary(heights, coordCellIndex, heightModUp, heightModDo
 		if cell.teir == otherEdge.otherFace[cellIndex].teir then
 			return
 		end
-		GetLineHeightModifiers(heights, coordCellIndex, cellIndex, heightModUp, heightModDown, intPoint, otherOut, otherEdge.length/2, 150, cell.height, otherEdge.otherFace[cellIndex].height)
-		GetHalfEdgeLine(otherEdge, intPoint)
+		if Dot(edgeOut, otherOut) < 0 then
+			return
+		end
+		local otherTeir = otherEdge.otherFace[cellIndex].teir
+		otherClockwise = not otherClockwise
+		local flip = (otherClockwise ~= (cellTeir > otherTeir))
+		GetLineHeightModifiers(teirFlood, cellTeir, otherTeir, heightModUp, heightModDown, intPoint, Add(intPoint, otherOut), 250, otherClockwise, flip)
 		return
 	end
 	
@@ -1093,12 +1190,16 @@ local function GetEdgeBoundary(heights, coordCellIndex, heightModUp, heightModDo
 		if cell.teir == edge.otherFace[cellIndex].teir then
 			return
 		end
-		GetLineHeightModifiers(heights, coordCellIndex, cellIndex, heightModUp, heightModDown, intPoint, edgeOut, edge.length/2, 150, cell.height, edge.otherFace[cellIndex].height)
+		if Dot(edgeOut, otherOut) < 0 then
+			return
+		end
+		local otherTeir = edge.otherFace[cellIndex].teir
+		local flip = (otherClockwise ~= (cellTeir > otherTeir))
+		GetLineHeightModifiers(teirFlood, cellTeir, otherTeir, heightModUp, heightModDown, intPoint, Add(intPoint, edgeOut), 250, otherClockwise, flip)
 		GetHalfEdgeLine(edge, intPoint)
 		return
 	end
 	
-	local cellTeir = cell.teir
 	local topOfCliff = (cellTeir > edge.otherFace[cellIndex].teir and cellTeir > otherEdge.otherFace[cellIndex].teir)
 	local bottomOfCliff = (cellTeir < edge.otherFace[cellIndex].teir and cellTeir < otherEdge.otherFace[cellIndex].teir)
 	local doubleCliff = bottomOfCliff and edge.otherFace[cellIndex].teir ~= otherEdge.otherFace[cellIndex].teir
@@ -1107,18 +1208,17 @@ local function GetEdgeBoundary(heights, coordCellIndex, heightModUp, heightModDo
 		return
 	end
 	
-	local otherHeight = (topOfCliff    and max(edge.otherFace[cellIndex].height, otherEdge.otherFace[cellIndex].height)) or
-	                    (bottomOfCliff and min(edge.otherFace[cellIndex].height, otherEdge.otherFace[cellIndex].height))
+	local otherTeir = (topOfCliff    and max(edge.otherFace[cellIndex].teir, otherEdge.otherFace[cellIndex].teir)) or
+	                  (bottomOfCliff and min(edge.otherFace[cellIndex].teir, otherEdge.otherFace[cellIndex].teir))
 	
+	local flip = (otherClockwise ~= (cellTeir > otherTeir))
 	local curve = {}
 	for i = 1, #CIRCLE_POINTS do
 		curve[#curve + 1] = Add(intPoint, ChangeBasis(CIRCLE_POINTS[i], edgeOut[1], otherOut[1], edgeOut[2], otherOut[2]))
-		PointEcho(curve[#curve], i)
 	end
 	
-	PointEcho(intPoint, "Inc " .. edgeIncidence .. ", " .. cell.height .. ", " .. otherHeight)
-	
-	GetCurveHeightModifiers(heights, coordCellIndex, cellIndex, heightModUp, heightModDown, curve, 150, cell.height, otherHeight, cell.height > otherHeight)
+	--PointEcho(intPoint, "Inc " .. edgeIncidence .. ", " .. cell.teir .. ", " .. otherTeir)
+	GetCurveHeightModifiers(teirFlood, cellTeir, otherTeir, heightModUp, heightModDown, curve, 250, otherClockwise, flip)
 end
 
 local function GetSharedCell(edge, other)
@@ -1133,8 +1233,9 @@ local function GetSharedCell(edge, other)
 	return false
 end
 
-local function ProcessEdges(cells, edges, heights, coordCellIndex)
+local function ProcessEdges(cells, edges)
 	local heightModUp, heightModDown = {}, {}
+	local teirFlood = GetFloodfillHandler()
 	for i = 1, #edges do
 		local thisEdge = edges[i]
 		for n = 1, #thisEdge.neighbours do
@@ -1142,26 +1243,69 @@ local function ProcessEdges(cells, edges, heights, coordCellIndex)
 			for j = 1, #nbhd do
 				local otherEdge = nbhd[j]
 				if otherEdge.index < thisEdge.index then
-					GetEdgeBoundary(heights, coordCellIndex, heightModUp, heightModDown, cells, GetSharedCell(thisEdge, otherEdge), thisEdge, otherEdge, n)
+					GetEdgeBoundary(teirFlood, heightModUp, heightModDown, cells, GetSharedCell(thisEdge, otherEdge), thisEdge, otherEdge, n)
 				end
 			end
 		end
 	end
 	
-	return heightModUp, heightModDown
+	return teirFlood, heightModUp, heightModDown
 end
 
 local function GenerateEdgePassability(cells, edges)
 
 end
 
-local function ApplyHeightModifiers(heights, heightModUp, heightModDown)
-	for x = 0, MAP_X, SQUARE_SIZE do
-		for z = 0, MAP_Z, SQUARE_SIZE do
-			local posIndex = GetPosIndex(x, z)
-			heights[x][z] = heights[x][z] + (heightModUp[posIndex] or 0) - (heightModDown[posIndex] or 0)
+local function GetUpMod(teirMin, teirMax, teirHeight, heightModUp, heightModDown, posIndex)
+	local upMod
+	for low = teirMin, teirMax do
+		for high = teirMax, low, -1 do
+			if heightModUp[low] and heightModUp[low][high] and heightModUp[low][high][posIndex] then
+				upMod = (upMod or 0) + heightModUp[low][high][posIndex]
+			end
+		end
+		if upMod then
+			return upMod
 		end
 	end
+	return 0
+end
+
+local function GetDownMod(teirMin, teirMax, teirHeight, heightModUp, heightModDown, posIndex)
+	local downMod
+	for high = teirMax, teirMin, -1 do
+		for low = teirMin, high do
+			if heightModDown[low] and heightModDown[low][high] and heightModDown[low][high][posIndex] then
+				downMod = (downMod or 0) + heightModDown[low][high][posIndex]
+			end
+		end
+		if downMod then
+			return downMod
+		end
+	end
+	return 0
+end
+
+local function GetHeightMod(teirMin, teirMax, teirHeight, heightModUp, heightModDown, posIndex)
+	local upMod = GetUpMod(teirMin, teirMax, teirHeight, heightModUp, heightModDown, posIndex)
+	local downMod = GetDownMod(teirMin, teirMax, teirHeight, heightModUp, heightModDown, posIndex)
+	return (upMod - downMod)*teirHeight
+end
+
+local function ApplyHeightModifiers(teirConst, teirHeight, teirMin, teirMax, teirs, heightModUp, heightModDown)
+	local heights = {}
+	
+	for x = 0, MAP_X, SQUARE_SIZE do
+		heights[x] = {}
+		for z = 0, MAP_Z, SQUARE_SIZE do
+			local posIndex = GetPosIndex(x, z)
+			local baseHeight = teirConst + teirHeight*teirs[x][z]
+			local heightMod = GetHeightMod(teirMin, teirMax, teirHeight, heightModUp, heightModDown, posIndex)
+			heights[x][z] = baseHeight + heightMod
+		end
+	end
+	
+	return heights
 end
 
 --------------------------------------------------------------------------------
@@ -1188,19 +1332,27 @@ local function GenerateCellTeirs(cells, waveFunc)
 	local waterFator = math.random()
 	
 	local bucketWidth = 80 + std/2
-	local teirHeight = math.min(120, 80 + std/3)
+	local teirHeight = math.min(110, 80 + std/3)
+	local teirConst = teirHeight + 8
+	local teirMin, teirMax = 1000, -1000
+	
 	for i = 1, #cells do
 		local cell = cells[i]
 		local height = waveFunc(cell.site[1], cell.site[2])
 		local teir = math.floor((height - averageheight + bucketWidth*waterFator)/bucketWidth)
 		
 		cell.teir = teir
-		cell.height = teir*teirHeight + teirHeight + 8
+		cell.height = teir*teirHeight + teirConst
 		if cell.mirror then
 			cell.mirror.teir = cell.teir
 			cell.mirror.height = cell.height
 		end
+		
+		teirMin = min(teir, teirMin)
+		teirMax = max(teir, teirMax)
 	end
+	
+	return teirConst, teirHeight, teirMin, teirMax
 end
 
 local function SetStartCells(cells)
@@ -1219,6 +1371,10 @@ end
 --------------------------------------------------------------------------------
 -- Callins
 
+-- Gameframe draw debug
+local toDraw = nil
+local waitCount = 0
+
 function gadget:Initialize()
 	Spring.SetGameRulesParam("typemap", "temperate")
 	Spring.MarkerAddPoint(MID_X, 0, MID_Z, "Mid")
@@ -1231,8 +1387,9 @@ function gadget:Initialize()
 	--TerraformByFunc(waveFunc)
 	
 	local cells, edges = GenerateVoronoi(18, 400, 500)
+	toDraw = edges
 	
-	GenerateCellTeirs(cells, waveFunc)
+	local teirConst, teirHeight, teirMin, teirMax = GenerateCellTeirs(cells, waveFunc)
 	GenerateEdgePassability(cells, edges)
 	
 	startCells = SetStartCells(cells)
@@ -1241,10 +1398,10 @@ function gadget:Initialize()
 	--	CellEcho(startCells[i])
 	--	CellEcho(startCells[i].mirror)
 	--end
-	local heights, coordCellIndex = InitCoordHeight(cells, edges)
-	local heightModUp, heightModDown = ProcessEdges(cells, edges, heights, coordCellIndex)
-	
-	ApplyHeightModifiers(heights, heightModUp, heightModDown)
+	--local heights, coordCellIndex = InitCoordHeight(cells, edges)
+	local teirFlood, heightModUp, heightModDown = ProcessEdges(cells, edges)
+	local teirs = teirFlood.RunFloodfillAndGetValues()
+	local heights = ApplyHeightModifiers(teirConst, teirHeight, teirMin, teirMax, teirs, heightModUp, heightModDown)
 	
 	TerraformByHeights(heights)
 	
@@ -1286,6 +1443,23 @@ function gadget:Initialize()
 	--Spring.Utilities.TableEcho(projection, "projection")
 end
 
+function gadget:GameFrame()
+	if not toDraw then
+		return
+	end
+	
+	waitCount = (waitCount or 0) + 1
+	if waitCount < 40 then
+		return
+	end
+	
+	for i = 1, #toDraw do
+		LineDraw(toDraw[i])
+	end
+	
+	toDraw = nil
+end
+
 --------------------------------------------------------------------------------
 --------------------------------------------------------------------------------
 -- Debug
@@ -1314,4 +1488,12 @@ function CellEcho(cell)
 		LineDraw(cell.edges[k])
 		--PointEcho(Add(thisCell.edges[k][1], {i*16, 0}), i)
 	end
+end
+
+function MakeBoolString(values)
+	local str = " "
+	for i = 1, #values do
+		str = str .. ((values[i] and 1) or 0)
+	end
+	return str
 end
