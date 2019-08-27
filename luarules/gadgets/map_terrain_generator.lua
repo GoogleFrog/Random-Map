@@ -1296,6 +1296,12 @@ local function GenerateEdgePassability(cells, edges)
 	for i = 1, #edges do
 		local thisEdge = edges[i]
 		thisEdge.terrainWidth = ((math.random() > 0.3) and 280) or 40
+		if thisEdge.terrainWidth > 200 and thisEdge.faces and #thisEdge.faces == 2 then
+			if abs(thisEdge.faces[1].tier - thisEdge.faces[2].tier) == 2 then
+				thisEdge.terrainWidth = 560
+			end
+		end
+		
 		if thisEdge.mirror then
 			thisEdge.mirror.terrainWidth = thisEdge.terrainWidth
 		end
