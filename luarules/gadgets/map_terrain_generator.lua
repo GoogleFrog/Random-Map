@@ -840,42 +840,6 @@ local function TerraformByFunc(func)
 	Spring.SetHeightMapFunc(DoTerra)
 end
 
-local function TerraformByFuncAndVoronoi(cells, func)
-	local function DoTerra()
-		local point = {0, 0}
-		for x = 0, MAP_X, SQUARE_SIZE do
-			for z = 0, MAP_Z, SQUARE_SIZE do
-				point[1], point[2] = x, z
-				local cellIndex = GetPointCell(point, cells)
-				local cell = cells[cellIndex]
-				spSetHeightMap(x, z, func(cells[cellIndex].site[1], cells[cellIndex].site[2]))
-			end
-			Spring.ClearWatchDogTimer()
-		end
-	end
-
-	Spring.SetHeightMapFunc(DoTerra)
-end
-
-local function DistanceToSlopeFactor(dist, width)
-	if dist < -width then
-		return 0
-	end
-	if dist > width then
-		return 1
-	end
-	
-	return (1 - cos(pi*(dist/2 + width/2)/width))/2
-end
-
-local function MakeSingleEdgeSlope(cell, cellIndex, projFactor, edge, startToPoint)
-	local proj = Mult(projFactor*edge.length, edge.unit)
-	local normal = Subtract(startToPoint, proj)
-	local dist = AbsVal(normal)
-	local slopeFactor = DistanceToSlopeFactor(dist, 200)
-	return cell.height*slopeFactor + (1 - slopeFactor)*edge.otherFace[cellIndex].height
-end
-
 local function GetPointHeight(cells, edges, point)
 	local cellIndex = GetPointCell(point, cells)
 	local cell = cells[cellIndex]
@@ -901,15 +865,10 @@ local function GetPointHeight(cells, edges, point)
 			return cell.height
 		end
 		return cell.height, cell.index
-		--edge = otherEdge
-		--startToPoint = Subtract(point, edge[1])
-		--projFactor = Dot(startToPoint, edge.unit)/edge.length
-		--return MakeSingleEdgeSlope(cell, cellIndex, projFactor, edge, startToPoint)
 	end
 	
 	if not (otherEdge.otherFace[cellIndex]) then
 		return cell.height, cell.index
-		--return MakeSingleEdgeSlope(cell, cellIndex, projFactor, edge, startToPoint)
 	end
 	
 	local cellTier = cell.tier
@@ -994,24 +953,6 @@ local function TerraformByHeights(heights)
 	end
 
 	Spring.SetHeightMapFunc(DoTerra)
-end
-
-local function InitCoordHeight(cells, edges)
-	local heights = {}
-	local coordCellIndex = {}
-	local point = {0, 0}
-	for x = 0, MAP_X, SQUARE_SIZE do
-		heights[x] = {}
-		coordCellIndex[x] = {}
-		for z = 0, MAP_Z, SQUARE_SIZE do
-			point[1], point[2] = x, z
-			--heights[x][z], coordCellIndex[x][z] = GetPointHeight(cells, edges, point)
-			heights[x][z] = 30
-		end
-		Spring.ClearWatchDogTimer()
-	end
-	
-	return heights, coordCellIndex
 end
 
 --------------------------------------------------------------------------------
@@ -1293,6 +1234,9 @@ local function ProcessEdges(cells, edges)
 end
 
 local function GenerateEdgePassability(cells, edges)
+	local edgesSorted = Spring.Utilities.CopyTable(edges, false)
+	table.sort(edgesSorted, CompareLengthSq)
+	
 	for i = 1, #edges do
 		local thisEdge = edges[i]
 		thisEdge.terrainWidth = ((math.random() > 0.3) and 280) or 40
@@ -1372,8 +1316,6 @@ local function GenerateCellTiers(cells, waveFunc)
 	end
 	std = sqrt(std/#cells)
 	
-	Spring.Echo("averageheight", averageheight, "std", std)
-	
 	local waterFator = math.random()
 	
 	local bucketWidth = 80 + std/2
@@ -1424,10 +1366,6 @@ function gadget:Initialize()
 	Spring.SetGameRulesParam("typemap", "temperate")
 	Spring.MarkerAddPoint(MID_X, 0, MID_Z, "Mid")
 	
-	--if Spring.GetGameFrame() < 1 then
-	--	Spring.SetHeightMapFunc(FlattenMap, 10)
-	--end
-	
 	local waveFunc = GetTerrainWaveFunction()
 	--TerraformByFunc(waveFunc)
 	
@@ -1443,49 +1381,12 @@ function gadget:Initialize()
 	--	CellEcho(startCells[i])
 	--	CellEcho(startCells[i].mirror)
 	--end
-	--local heights, coordCellIndex = InitCoordHeight(cells, edges)
+	
 	local tierFlood, heightMod = ProcessEdges(cells, edges)
 	local tiers = tierFlood.RunFloodfillAndGetValues()
 	local heights = ApplyHeightModifiers(tierConst, tierHeight, tierMin, tierMax, tiers, heightMod)
 	
 	TerraformByHeights(heights)
-	
-	local edgesSorted = Spring.Utilities.CopyTable(edges, false)
-	table.sort(edgesSorted, CompareLengthSq)
-	
-	--for i = 1, #cells do
-	--	local cell = cells[i]
-	--	local info = ""
-	--	for j = 1, #cell.neighbours do
-	--		info = info .. cell.neighbours[j].index .. ", "
-	--	end
-	--	PointEcho(cell.site, "Cell: " .. i .. " - " .. info)
-	--end
-	--
-	--for i = 1, #edges do
-	--	local edge = edges[i]
-	--	local info = "A: "
-	--	for j = 1, #edge.neighbours[1] do
-	--		info = info .. edge.neighbours[1][j].index .. ", "
-	--	end
-	--	info = info .. "B: "
-	--	for j = 1, #edge.neighbours[2] do
-	--		info = info .. edge.neighbours[2][j].index .. ", "
-	--	end
-	--	LineEcho(edge, "Edge: " .. i .. " - " .. info)
-	--end
-	
-	
-	--Spring.Utilities.TableEcho(GetBoundedLineIntersection({{1,1}, {5, 3}}, {{3, 4}, {2, -3}}), "Intersect")
-	--Spring.Echo("DistanceToLineAlternateAlternate({0, 4}, {{0, 0}, {4, 4}})", DistanceToLineAlternateAlternate({0, 4}, {{0, 0}, {4, 4}}))
-	--Spring.Utilities.TableEcho(Project({0, 4}, {4,4}), "Project({0, 4}, {4,4})")
-	
-	--local point, line = {3, 1}, {{1,1}, {3,3}}
-	--local startToPos = Subtract(point, line[1])
-	--local startToEnd = Subtract(line[2], line[1])
-	--local normal, projection = Normal(startToPos, startToEnd)
-	--Spring.Utilities.TableEcho(normal, "normal")
-	--Spring.Utilities.TableEcho(projection, "projection")
 end
 
 function gadget:GameFrame()
