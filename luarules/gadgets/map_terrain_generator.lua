@@ -1320,7 +1320,7 @@ local function GenerateCellTiers(cells, waveFunc)
 	
 	local bucketWidth = 80 + std/2
 	local tierHeight = 100
-	local tierConst = tierHeight + 8
+	local tierConst = tierHeight + 20
 	local tierMin, tierMax = 1000, -1000
 	
 	for i = 1, #cells do

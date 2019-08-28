@@ -147,7 +147,7 @@ local function SetMapTexture(texturePool, mapTexX, mapTexZ, topTexX, topTexZ, to
 		if texX then
 			glTexture(texturePool[i].texture)
 			for j = 1, #texX do
-				local heightMult = 1 + mapHeight[texX[j]][texZ[j]]/400
+				local heightMult = 1 + mapHeight[texX[j]][texZ[j]]/300
 				glColor(heightMult, heightMult, heightMult, 1)
 				glRenderToTexture(fulltex, DrawTexBlock, texX[j], texZ[j])
 			end
@@ -164,7 +164,7 @@ local function SetMapTexture(texturePool, mapTexX, mapTexZ, topTexX, topTexZ, to
 		if texX then
 			glTexture(texturePool[i].texture)
 			for j = 1, #texX do
-				local heightMult = 1 + mapHeight[texX[j]][texZ[j]]/400
+				local heightMult = 1 + mapHeight[texX[j]][texZ[j]]/300
 				glColor(heightMult, heightMult, heightMult, texAlpha[j])
 				glRenderToTexture(fulltex, DrawTexBlock, texX[j], texZ[j])
 			end
@@ -309,7 +309,13 @@ local function GetTopTex(normal, vehiclePass, botPass, underWater)
 		minNorm, maxNorm = BOT_NORMAL, VEH_NORMAL
 	end
 	
-	local topAlpha = 0.95*(1 - (normal - minNorm)/(maxNorm - minNorm))
+	local textureProp = (1 - (normal - minNorm)/(maxNorm - minNorm))
+	local topAlpha
+	if vehiclePass then
+		topAlpha = 0.95*textureProp
+	else
+		topAlpha = 0.15*textureProp
+	end
 	
 	return topTex, topAlpha
 end
