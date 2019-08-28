@@ -37,7 +37,7 @@ local UHM_HEIGHT = 64
 local UHM_X = UHM_WIDTH/MAP_X
 local UHM_Z = UHM_HEIGHT/MAP_Z
 
-local BLOCK_SIZE  = 16
+local BLOCK_SIZE  = 8
 local DRAW_OFFSET = 2 * BLOCK_SIZE/MAP_Z - 1
 
 local USE_SHADING_TEXTURE = (Spring.GetConfigInt("AdvMapShading") == 1)
@@ -76,50 +76,44 @@ local SPLAT_DETAIL_TEX_POOL = {
 --------------------------------------------------------------------------------
 --------------------------------------------------------------------------------
 
-local splatTex = {}
-local mapTex   = {} -- 2d array of textures
-
---------------------------------------------------------------------------------
---------------------------------------------------------------------------------
-
-local function drawTextureOnSquare(x,z,size,sx,sz,xsize, zsize)
+local function drawTextureOnSquare(x, z, size, sx, sz, xsize, zsize)
 	local x1 = 2*x/SQUARE_SIZE - 1
 	local z1 = 2*z/SQUARE_SIZE - 1
 	local x2 = 2*(x+size)/SQUARE_SIZE - 1
 	local z2 = 2*(z+size)/SQUARE_SIZE - 1
-	glTexRect(x1,z1,x2,z2,sx,sz,sx+xsize,sz+zsize)
+	glTexRect(x1, z1, x2, z2, sx, sz, sx+xsize, sz+zsize)
 end
 
-local function drawTextureOnMapTex(x,z)
+local function drawTextureOnMapTex(x, z)
 	local x1 = 2*x/MAP_X - 1
 	local z1 = 2*z/MAP_Z - 1
 	local x2 = 2*(x+BLOCK_SIZE)/MAP_X - 1
 	local z2 = 2*(z+BLOCK_SIZE)/MAP_Z - 1
-	glTexRect(x1,z1,x2,z2)
+	glTexRect(x1, z1, x2, z2)
 end
 
-local function drawSplatTextureOnMapTex(x,z)
+local function drawSplatTextureOnMapTex(x, z)
 	local x1 = 2*x/MAP_X - 1
 	local z1 = 2*z/MAP_Z - 1
 	local x2 = 2*(x+BLOCK_SIZE)/MAP_X - 1
 	local z2 = 2*(z+BLOCK_SIZE)/MAP_Z - 1
-	glRect(x1,z1,x2,z2)
+	glRect(x1, z1, x2, z2)
 end
 
-local function drawtexblockontex(x,z)
-	glTexRect(x*MAP_FAC_X -1,z*MAP_FAC_Z - 1,x*MAP_FAC_X + DRAW_OFFSET,z*MAP_FAC_Z + DRAW_OFFSET)
+local function drawtexblockontex(x, z)
+	glTexRect(x*MAP_FAC_X - 1, z*MAP_FAC_Z - 1, x*MAP_FAC_X + DRAW_OFFSET, z*MAP_FAC_Z + DRAW_OFFSET)
 end
 
-local function drawcolorblockontex(x,z)
-	glRect(x*MAP_FAC_X -1,z*MAP_FAC_Z - 1,x*MAP_FAC_X + DRAW_OFFSET,z*MAP_FAC_Z + DRAW_OFFSET)
+local function drawcolorblockontex(x, z)
+	glRect(x*MAP_FAC_X -1, z*MAP_FAC_Z - 1, x*MAP_FAC_X + DRAW_OFFSET, z*MAP_FAC_Z + DRAW_OFFSET)
 end
 
 local function drawCopySquare()
-	glTexRect(-1,1,1,-1)
+	glTexRect(-1, 1, 1, -1)
 end
 
-local function drawRectOnTex(x1,z1,x2,z2,sx1,sz1, sx2,sz2)
-	glTexRect(x1,z1,x2,z2,sx1,sz1, sx2,sz2)
+local function drawRectOnTex(x1, z1, x2, z2, sx1, sz1, sx2, sz2)
+	glTexRect(x1, z1, x2, z2, sx1, sz1, sx2, sz2)
 end
 
 --------------------------------------------------------------------------------
@@ -235,7 +229,7 @@ end
 --------------------------------------------------------------------------------
 --------------------------------------------------------------------------------
 
-local function SetMapTexture()
+local function SetMapTexture(texturePool, mapTexX, mapTexZ, splatTexX, splatTexZ)
 	local DrawStart = Spring.GetTimer()
 	local usedsplat
 	local usedgrass
@@ -271,29 +265,36 @@ local function SetMapTexture()
 	
 	local ago = Spring.GetTimer()
 	for i = 1, #texturePool do
-		glTexture(texturePool[i].texture)
-		for k = 1, ctTEX[i] - 1 do
-			local pos = mapTex[i][k]
-			gl.RenderToTexture(fulltex, drawtexblockontex, pos.x, pos.z)
+		local texX = mapTexX[i]
+		local texZ = mapTexZ[i]
+		if texX then
+			glTexture(texturePool[i].texture)
+			for j = 1, #texX do
+				glRenderToTexture(fulltex, drawtexblockontex, texX[j], texZ[j])
+			end
 		end
-		glTexture(false)
 	end
+	glTexture(false)
+	
 	local cur = Spring.GetTimer()
 	Spring.Echo("FullTex rendered in: "..(Spring.DiffTimers(cur, ago, true)))
 	
-	if USE_SHADING_TEXTURE  then
+	if USE_SHADING_TEXTURE then
 		local ago2 = Spring.GetTimer()
-		for i = 1, 4 do
-			glColor(SPLAT_DETAIL_TEX_POOL[i])
-			for k = 1, ctsplat[i] - 1 do
-				local pos = splatTex[i][k]
-				glRenderToTexture(splattex, drawcolorblockontex, pos.x, pos.z)
-				Spring.ClearWatchDogTimer()
+		for i = 1, #SPLAT_DETAIL_TEX_POOL do
+			local texX = splatTexX[i]
+			local texZ = splatTexZ[i]
+			if texX then
+				glColor(SPLAT_DETAIL_TEX_POOL[i])
+				for j = 1, #texX do
+					glRenderToTexture(splattex, drawcolorblockontex, texX[j], texZ[j])
+					Spring.ClearWatchDogTimer()
+				end
 			end
-			glColor(1,1,1,1)
 		end
 		cur = Spring.GetTimer()
 		Spring.Echo("Splattex rendered in: "..(Spring.DiffTimers(cur, ago2, true)))
+		glColor(1, 1, 1, 1)
 	end
 	
 	local texOut = fulltex
@@ -333,7 +334,7 @@ local function SetMapTexture()
 	
 	if fulltex and fulltex ~= usedgrass and fulltex ~= usedminimap then -- delete unused textures
 		glDeleteTexture(fulltex)
-		if texOut and texOut == fulltex then -- texOut = fulltex if gl.CreateShader = nil
+		if texOut and texOut == fulltex then
 			texOut = nil
 		end
 		fulltex = nil
@@ -349,19 +350,18 @@ local function SetMapTexture()
 		usedsplat = texOut
 		Spring.Echo("Applied splat texture")
 		gl.DeleteTextureFBO(splattex)
-		if texOut and texOut~=usedsplat then
+		if texOut and texOut ~= usedsplat then
 			glDeleteTexture(texOut)
-			if splattex and texOut == splattex then -- texOut = splattex if gl.CreateShader = nil
+			if splattex and texOut == splattex then
 				splattex = nile
 			end
 			texOut = nil
 		end
-		if splattex and splattex~=usedsplat then
+		if splattex and splattex ~= usedsplat then
 			glDeleteTexture(splattex)
 			splattex = nil
-		end	
+		end
 	end
-	mapfullyprocessed = true
 	local DrawEnd = Spring.GetTimer()
 	Spring.Echo("map fully processed in: "..(Spring.DiffTimers(DrawEnd, DrawStart, true)))
 end
@@ -369,51 +369,39 @@ end
 --------------------------------------------------------------------------------
 --------------------------------------------------------------------------------
 
-local function UpdateAll()
+local function InitializeTextures(useSplat, typemap)
 	local ago = Spring.GetTimer()
-	local ENVIR = Spring.GetGameRulesParam("typemap")
-	splatTex = {{},{},{},{}}
-	mapTex = {{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{}}
-	ctsplat = {1,1,1,1}
-	ctTEX = {1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1}
-	for x = 0, MAP_X-1, BLOCK_SIZE do
-		for z = 0, MAP_Z-1, BLOCK_SIZE do
+	local mapTexX = {}
+	local mapTexZ = {}
+	local splatTexX = {}
+	local splatTexZ = {}
+	for x = 0, MAP_X - 1, BLOCK_SIZE do
+		for z = 0, MAP_Z - 1, BLOCK_SIZE do
 			local TANK = SpTestMoveOrder(UnitDefNames["vehassault"].id, x, 0,z, 0,0,0, true, false, true)
 			--local TANK = SpTestMoveOrder(UnitDefNames["testvehicle"].id, x, 0,z, 0,0,0, true, false, true)
 			local KBOT = SpTestMoveOrder(UnitDefNames["cloakriot"].id, x, 0,z, 0,0,0, true, false, true)
 			local METAL = SpGetMetalAmount(floor(x/16), floor(z/16)) > 0
 			local UW = SpTestBuildOrder(UnitDefNames["staticsonar"].id, x, 0,z, 0) == 0	
-			local tex = SlopeType(x, z, TANK, KBOT, METAL, UW, ENVIR)
-			local splat = SplatSlopeType(x, z, TANK, KBOT, METAL, UW, ENVIR)
-			mapTex[tex][ctTEX[tex]] = {x = x, z = z}
-			ctTEX[tex] = ctTEX[tex] + 1
-			splatTex[splat][ctsplat[splat]] = {x = x, z = z}
-			ctsplat[splat] = ctsplat[splat] + 1
+			local tex = SlopeType(x, z, TANK, KBOT, METAL, UW, typemap)
+			
+			mapTexX[tex] = mapTexX[tex] or {}
+			mapTexZ[tex] = mapTexZ[tex] or {}
+			mapTexX[tex][#mapTexX[tex] + 1] = x
+			mapTexZ[tex][#mapTexZ[tex] + 1] = z
+			
+			if useSplat then
+				local splat = SplatSlopeType(x, z, TANK, KBOT, METAL, UW, typemap)
+				splatTexX[splat] = splatTexX[splat] or {}
+				splatTexZ[splat] = splatTexZ[splat] or {}
+				splatTexX[splat][#splatTexX[splat] + 1] = x
+				splatTexZ[splat][#splatTexZ[splat] + 1] = z
+			end
 		end
 	end
 	local cur = Spring.GetTimer()
 	Spring.Echo("Map scanned in: "..(Spring.DiffTimers(cur, ago, true)))
-end
-
-local function UpdateAllNoSplat()
-	local ago = Spring.GetTimer()
-	local ENVIR = Spring.GetGameRulesParam("typemap")
-	mapTex = {{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{}}
-	ctTEX = {1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1}
-	for x = 0, MAP_X-1, BLOCK_SIZE do
-		for z = 0, MAP_Z-1, BLOCK_SIZE do
-			local TANK = SpTestMoveOrder(UnitDefNames["vehassault"].id, x, 0,z, 0,0,0, true, false, true)
-			--local TANK = SpTestMoveOrder(UnitDefNames["testvehicle"].id, x, 0,z, 0,0,0, true, false, true)
-			local KBOT = SpTestMoveOrder(UnitDefNames["cloakriot"].id, x, 0,z, 0,0,0, true, false, true)
-			local METAL = SpGetMetalAmount(floor(x/16), floor(z/16)) > 0
-			local UW = SpTestBuildOrder(UnitDefNames["staticsonar"].id, x, 0,z, 0) == 0	
-			local tex = SlopeType(x, z, TANK, KBOT, METAL, UW, ENVIR)
-			mapTex[tex][ctTEX[tex]] = {x = x, z = z}
-			ctTEX[tex] = ctTEX[tex] + 1
-		end
-	end
-	local cur = Spring.GetTimer()
-	Spring.Echo("Map scanned in: "..(Spring.DiffTimers(cur, ago, true)))
+	
+	return mapTexX, mapTexZ, splatTexX, splatTexZ
 end
 
 function SlopeType(x,z,t,k,m,uw,e)
@@ -483,6 +471,9 @@ end
 --------------------------------------------------------------------------------
 --------------------------------------------------------------------------------
 
+local texturePool
+local mapTexX, mapTexZ, splatTexX, splatTexZ
+
 function gadget:DrawGenesis()
 	if initialized ~= true then
 		return
@@ -490,7 +481,8 @@ function gadget:DrawGenesis()
 	if mapfullyprocessed == true then
 		return
 	end
-	SetMapTexture()
+	mapfullyprocessed = true
+	SetMapTexture(texturePool, mapTexX, mapTexZ, splatTexX, splatTexZ)
 end
 
 function gadget:Initialize()
@@ -498,11 +490,7 @@ function gadget:Initialize()
 		return
 	end
 	texturePool = GetTextureSet(Spring.GetGameRulesParam("typemap"))
-	if USE_SHADING_TEXTURE then
-		UpdateAll()
-	else
-		UpdateAllNoSplat()
-	end
+	mapTexX, mapTexZ, splatTexX, splatTexZ =  InitializeTextures(USE_SHADING_TEXTURE, Spring.GetGameRulesParam("typemap"))
 	
 	initialized = true
 	activestate = true

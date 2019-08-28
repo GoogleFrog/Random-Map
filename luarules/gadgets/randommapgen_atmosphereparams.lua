@@ -29,7 +29,7 @@ function gadget:GetInfo()
 		author	= "Doo",
 		date	= "July,2016",
 		layer	= 11,
-        enabled = (select(1, Spring.GetGameFrame()) <= 0),
+		enabled = (select(1, Spring.GetGameFrame()) <= 0),
 	}
 end
 

@@ -1,15 +1,14 @@
 
 function gadget:GetInfo()
 	return {
-		name	= "AirFix",
-		desc	= "AirFix",
-		author	= "Doo",
-		date	= "July,2016",
-		layer	= 11,
-		enabled = true,
+		name    = "AirFix",
+		desc    = "AirFix",
+		author  = "Doo",
+		date    = "July,2016",
+		layer   = 11,
+		enabled = false,
 	}
 end
-
 
 --------------------------------------------------------------------------------
 -- synced
