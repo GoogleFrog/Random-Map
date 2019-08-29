@@ -1018,8 +1018,20 @@ local function GetHalfEdgeLine(edge, intPoint)
 	end
 end
 
-local function MakeEdgeSlope(tangDist, projDist, length, startWidth, endWidth, overshootStart)
-	local maxWidth = max(startWidth, endWidth)
+local function GetSlopeWidth(startWidth, endWidth, segStartWidth, segEndWidth, startDist, endDist, dist)
+	local fullDist = startDist + dist*(endDist - startDist)
+	local prop = (cos(((fullDist - 0.4)*0.2)*pi) + 1)/2
+	if fullDist < 0.4 then
+		prop = 1
+	elseif fullDist > 0.6 then
+		prop = 0
+	end
+	
+	return prop*startWidth + (1 - prop)*endWidth
+end
+
+local function MakeEdgeSlope(tangDist, projDist, length, startWidth, endWidth, segStartWidth, segEndWidth, startDist, endDist, overshootStart)
+	local maxWidth = max(segStartWidth, segEndWidth)
 	
 	if tangDist < -maxWidth then
 		return
@@ -1029,7 +1041,7 @@ local function MakeEdgeSlope(tangDist, projDist, length, startWidth, endWidth, o
 	end
 	
 	local dist = abs(tangDist)
-	local width = (1 - projDist/length)*startWidth + (projDist/length)*endWidth
+	local width = GetSlopeWidth(startWidth, endWidth, segStartWidth, segEndWidth, startDist, endDist, projDist/length)
 	local sign = ((tangDist > 0) and 1) or -1
 	
 	if dist > width then
@@ -1037,7 +1049,7 @@ local function MakeEdgeSlope(tangDist, projDist, length, startWidth, endWidth, o
 	end
 	
 	if (projDist < 0 and (not overshootStart)) or projDist > length then
-		width = ((projDist < 0) and startWidth) or endWidth
+		width = ((projDist < 0) and segStartWidth) or segEndWidth
 		local offDist = ((projDist < 0) and -projDist) or (projDist - length)
 		dist = sqrt(offDist^2 + dist^2)
 		if dist > width then
@@ -1053,8 +1065,10 @@ local function MakeEdgeSlope(tangDist, projDist, length, startWidth, endWidth, o
 	end
 end
 
-local function ApplyLineDistanceFunc(tierFlood, cellTier, otherTier, heightMod, lineStart, lineEnd, func, startWidth, endWidth, otherClockwise, overshootStart)
-	local width = max(startWidth, endWidth)
+local function ApplyLineDistanceFunc(tierFlood, cellTier, otherTier, heightMod, lineStart, lineEnd, HeightFunc, startWidth, endWidth, startDist, endDist, otherClockwise, overshootStart)
+	local segStartWidth = (1 - startDist)*startWidth + startDist*endWidth
+	local segEndWidth   = (1 -   endDist)*startWidth +   endDist*endWidth
+	local width = max(segStartWidth, segEndWidth)
 	
 	if overshootStart then
 		width = width*2
@@ -1098,7 +1112,7 @@ local function ApplyLineDistanceFunc(tierFlood, cellTier, otherTier, heightMod, 
 				tangDist = -tangDist
 			end
 			
-			local towardsCellTier, towardsOtherTier = func(tangDist, projDist, lineLength, startWidth, endWidth, overshootStart)
+			local towardsCellTier, towardsOtherTier = HeightFunc(tangDist, projDist, lineLength, startWidth, endWidth, segStartWidth, segEndWidth, startDist, endDist, overshootStart)
 			local posIndex = GetPosIndex(x, z)
 			
 			if towardsCellTier then
@@ -1119,7 +1133,7 @@ local function ApplyLineDistanceFunc(tierFlood, cellTier, otherTier, heightMod, 
 end
 
 local function GetLineHeightModifiers(tierFlood, cellTier, otherTier, heightMod, startPoint, endPoint, width, otherClockwise)
-	ApplyLineDistanceFunc(tierFlood, cellTier, otherTier, heightMod, startPoint, endPoint, MakeEdgeSlope, width, width, otherClockwise, true)
+	ApplyLineDistanceFunc(tierFlood, cellTier, otherTier, heightMod, startPoint, endPoint, MakeEdgeSlope, width, width, 0, 1, otherClockwise, true)
 end
 
 local function GetCurveHeightModifiers(tierFlood, cellTier, otherTier, heightMod, curve, startWidth, endWidth, otherClockwise)
@@ -1135,10 +1149,7 @@ local function GetCurveHeightModifiers(tierFlood, cellTier, otherTier, heightMod
 	for i = 1, #curve - 1 do
 		local startDist = curveDist[i]/totalLength
 		local endDist = curveDist[i+1]/totalLength
-		local segStartWidth = (1 - startDist)*startWidth + startDist*endWidth
-		local segEndWidth   = (1 -   endDist)*startWidth +   endDist*endWidth
-		
-		ApplyLineDistanceFunc(tierFlood, cellTier, otherTier, heightMod, curve[i], curve[i + 1], MakeEdgeSlope, segStartWidth, segEndWidth, otherClockwise)
+		ApplyLineDistanceFunc(tierFlood, cellTier, otherTier, heightMod, curve[i], curve[i + 1], MakeEdgeSlope, startWidth, endWidth, startDist, endDist, otherClockwise)
 	end
 end
 
