@@ -147,8 +147,8 @@ local function SetMapTexture(texturePool, mapTexX, mapTexZ, topTexX, topTexZ, to
 		if texX then
 			glTexture(texturePool[i].texture)
 			for j = 1, #texX do
-				local heightMult = 1 + mapHeight[texX[j]][texZ[j]]/300
-				glColor(heightMult, heightMult, heightMult, 1)
+				local heightMult = 0.12*(mapHeight[texX[j]][texZ[j]]/350) + 0.88
+				glColor(1, 1, 1, heightMult)
 				glRenderToTexture(fulltex, DrawTexBlock, texX[j], texZ[j])
 			end
 		end
@@ -273,7 +273,7 @@ local function GetSplatTex(vehiclePass, botPass, underWater)
 	if vehiclePass then
 		return 1
 	end
-	return ((random() < 0.125) and 2) or 1
+	return ((random() < 0.75) and 2) or 1
 end
 
 local function GetMainTex(vehiclePass, botPass, underWater)

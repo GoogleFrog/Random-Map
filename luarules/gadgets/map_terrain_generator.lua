@@ -474,7 +474,13 @@ local function GenerateVoronoiCells(points)
 			end
 			if intersections then
 				if #intersections ~= 2 then
-					Spring.Echo("#intersections ~= 2")
+					for e = 1, #cells do
+						CellEcho(cells[e])
+					end
+					for e = 1, #intersections do
+						PointEcho(intersections[e], "Int: " .. e)
+					end
+					Spring.Echo("#intersections ~= 2", #intersections)
 					return
 				end
 				newCell.edges[#newCell.edges + 1] = intersections
@@ -1018,12 +1024,18 @@ local function GetHalfEdgeLine(edge, intPoint)
 	end
 end
 
-local function GetSlopeWidth(startWidth, endWidth, segStartWidth, segEndWidth, startDist, endDist, dist)
-	local fullDist = startDist + dist*(endDist - startDist)
-	local prop = (cos(((fullDist - 0.4)*0.2)*pi) + 1)/2
-	if fullDist < 0.4 then
+local function GetSlopeWidth(startWidth, endWidth, startDist, endDist, dist)
+	local propDist = startDist + dist*(endDist - startDist)
+	if propDist < startDist then
+		propDist = startDist
+	elseif propDist > endDist then
+		propDist = endDist
+	end
+	
+	local prop = (cos(((propDist - 0.15)/0.7)*pi) + 1)/2
+	if propDist < 0.15 then
 		prop = 1
-	elseif fullDist > 0.6 then
+	elseif propDist > 0.85 then
 		prop = 0
 	end
 	
@@ -1041,7 +1053,7 @@ local function MakeEdgeSlope(tangDist, projDist, length, startWidth, endWidth, s
 	end
 	
 	local dist = abs(tangDist)
-	local width = GetSlopeWidth(startWidth, endWidth, segStartWidth, segEndWidth, startDist, endDist, projDist/length)
+	local width = GetSlopeWidth(startWidth, endWidth, startDist, endDist, projDist/length)
 	local sign = ((tangDist > 0) and 1) or -1
 	
 	if dist > width then
@@ -1066,8 +1078,8 @@ local function MakeEdgeSlope(tangDist, projDist, length, startWidth, endWidth, s
 end
 
 local function ApplyLineDistanceFunc(tierFlood, cellTier, otherTier, heightMod, lineStart, lineEnd, HeightFunc, startWidth, endWidth, startDist, endDist, otherClockwise, overshootStart)
-	local segStartWidth = (1 - startDist)*startWidth + startDist*endWidth
-	local segEndWidth   = (1 -   endDist)*startWidth +   endDist*endWidth
+	local segStartWidth = GetSlopeWidth(startWidth, endWidth, startDist, endDist, 0)
+	local segEndWidth   = GetSlopeWidth(startWidth, endWidth, startDist, endDist, 1)
 	local width = max(segStartWidth, segEndWidth)
 	
 	if overshootStart then
@@ -1244,21 +1256,83 @@ local function ProcessEdges(cells, edges)
 	return tierFlood, heightMod
 end
 
+local function MirrorEdgePassability(edge)
+	local mirror = edge.mirror
+	if not mirror then
+		return
+	end
+
+	mirror.terrainWidth = edge.terrainWidth
+	mirror.teirDiff     = edge.teirDiff
+	mirror.highTeir     = edge.highTeir
+	mirror.vehPass      = edge.vehPass
+	mirror.botPass      = edge.botPass
+	
+	LineEcho(mirror, mirror.terrainWidth)
+end
+
+local function SetEdgePassability(edge)
+	edge.teirDiff = (edge.faces and (#edge.faces == 2) and abs(edge.faces[1].tier - edge.faces[2].tier)) or 0
+	edge.highTeir = edge.faces and (#edge.faces == 2) and max(edge.faces[1].tier, edge.faces[2].tier)
+	if not edge.highTeir then
+		edge.highTeir = edge.faces[1].tier
+	end
+	
+	if edge.teirDiff == 0 then
+		edge.vehPass = true
+		edge.botPass = true
+		edge.terrainWidth = 20
+		return
+	end
+	
+	local impassCount = 0
+	local matchCount  = 0
+	for n = 1, 2 do
+		local nbhd = edge.neighbours[n]
+		for i = 1, #nbhd do
+			local otherEdge = nbhd[i]
+			if otherEdge.teirDiff ~= 0 and otherEdge.highTeir == edge.highTeir then
+				matchCount = matchCount + 1
+				if otherEdge.terrainWidth < 100 then
+					impassCount = impassCount + 1
+				end
+			end
+		end
+	end
+	
+	if edge.length < 600 and (impassCount == 0 or impassCount == 2) then
+		edge.terrainWidth = ((impassCount == 0) and 300) or 38
+	else
+		edge.terrainWidth = ((math.random() > 0.35) and 300) or 38
+	end
+	
+	if edge.terrainWidth > 200 and edge.teirDiff == 2 and (math.random() > 0.6) then
+		edge.terrainWidth = 600
+	end
+	
+	if (edge.terrainWidth < 100) or (edge.teirDiff > 3) then
+		edge.vehPass = false
+		edge.botPass = false
+	elseif (edge.terrainWidth < 400 and edge.teirDiff == 1) or (edge.terrainWidth < 800 and edge.teirDiff == 2) then
+		edge.vehPass = true
+		edge.botPass = true
+	else
+		edge.vehPass = false
+		edge.botPass = true
+	end
+	
+end
+
 local function GenerateEdgePassability(cells, edges)
 	local edgesSorted = Spring.Utilities.CopyTable(edges, false)
 	table.sort(edgesSorted, CompareLengthSq)
 	
-	for i = 1, #edges do
-		local thisEdge = edges[i]
-		thisEdge.terrainWidth = ((math.random() > 0.35) and 280) or 40
-		if thisEdge.terrainWidth > 200 and thisEdge.faces and #thisEdge.faces == 2 then
-			if abs(thisEdge.faces[1].tier - thisEdge.faces[2].tier) == 2 and (math.random() > 0.6) then
-				thisEdge.terrainWidth = 560
-			end
-		end
-		
-		if thisEdge.mirror then
-			thisEdge.mirror.terrainWidth = thisEdge.terrainWidth
+	for i = 1, #edgesSorted do
+		local thisEdge = edgesSorted[i]
+		if not thisEdge.terrainWidth then
+			SetEdgePassability(thisEdge)
+			LineEcho(thisEdge, thisEdge.terrainWidth)
+			MirrorEdgePassability(thisEdge)
 		end
 	end
 end
@@ -1330,7 +1404,7 @@ local function GenerateCellTiers(cells, waveFunc)
 	local waterFator = math.random()
 	
 	local bucketWidth = 80 + std/2
-	local tierHeight = 100
+	local tierHeight = 110
 	local tierConst = tierHeight + 20
 	local tierMin, tierMax = 1000, -1000
 	
