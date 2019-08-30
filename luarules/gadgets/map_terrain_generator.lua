@@ -949,14 +949,26 @@ local function TerraformByCellHeight(cells)
 end
 
 local function TerraformByHeights(heights)
+	local minHeight, maxHeight = 4000, -4000
+
 	local function DoTerra()
 		for x = 0, MAP_X, SQUARE_SIZE do
 			for z = 0, MAP_Z, SQUARE_SIZE do
-				spSetHeightMap(x, z, heights[x][z] or 600)
+				local h = heights[x][z]
+				spSetHeightMap(x, z, h or 600)
+				if h < minHeight then
+					minHeight = h
+				end
+				if h > maxHeight then
+					maxHeight = h
+				end
 			end
 			Spring.ClearWatchDogTimer()
 		end
 	end
+	
+	Spring.SetGameRulesParam("ground_min_override", minHeight)
+	Spring.SetGameRulesParam("ground_max_override", maxHeight)
 
 	Spring.SetHeightMapFunc(DoTerra)
 end
