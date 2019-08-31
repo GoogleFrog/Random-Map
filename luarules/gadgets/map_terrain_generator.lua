@@ -13,7 +13,7 @@ function gadget:GetInfo()
 		author    = "GoogleFrog",
 		date      = "14 August 2019",
 		license   = "GNU GPL, v2 or later",
-		layer     = 0,
+		layer    = -math.huge + 5,
 		enabled   = true  --  loaded by default?
 	}
 end
@@ -29,16 +29,17 @@ local SQUARE_SIZE = Game.squareSize
 
 local spSetHeightMap = Spring.SetHeightMap
 
-local sqrt  = math.sqrt
-local pi    = math.pi
-local cos   = math.cos
-local sin   = math.sin
-local abs   = math.abs
-local log   = math.log
-local floor = math.floor
-local ceil  = math.ceil
-local min   = math.min
-local max   = math.max
+local sqrt   = math.sqrt
+local pi     = math.pi
+local cos    = math.cos
+local sin    = math.sin
+local abs    = math.abs
+local log    = math.log
+local floor  = math.floor
+local ceil   = math.ceil
+local min    = math.min
+local max    = math.max
+local random = math.random
 
 --------------------------------------------------------------------------------
 --------------------------------------------------------------------------------
@@ -220,12 +221,12 @@ local function DistanceToLineSq(point, line)
 end
 
 local function GetRandomDir()
-	local angle = math.random()*2*pi
+	local angle = random()*2*pi
 	return {cos(angle), sin(angle)}
 end
 
 local function GetRandomSign()
-	return (math.floor(math.random()*2))*2 - 1
+	return (math.floor(random()*2))*2 - 1
 end
 
 local function SamePoint(p1, p2, acc)
@@ -237,8 +238,8 @@ local function SameLine(l1, l2)
 	return (SamePoint(l1[1], l2[1], 5) and SamePoint(l1[2], l2[2], 5)) or (SamePoint(l1[1], l2[2], 5) and SamePoint(l1[2], l2[1], 5))
 end
 
-local function CompareLengthSq(a, b)
-	return a.length < b.length
+local function CompareLength(a, b)
+	return a.length > b.length
 end
 
 local function InverseBasis(a, b, c, d)
@@ -323,14 +324,14 @@ local function GetPointCell(point, cells)
 end
 
 local function GetRandomPoint(avoidDist, avoidPoints, maxAttempts, useOtherSize)
-	local point = {math.random()*MAP_X, math.random()*MAP_Z}
+	local point = {random()*MAP_X, random()*MAP_Z}
 	if not avoidDist then
 		return point
 	end
 	
 	local attempts = 1
 	while (select(2, GetClosestPoint(point, avoidPoints, useOtherSize)) or 0) < avoidDist do
-		point = {math.random()*MAP_X, math.random()*MAP_Z}
+		point = {random()*MAP_X, random()*MAP_Z}
 		attempts = attempts + 1
 		if attempts > maxAttempts then
 			break
@@ -374,6 +375,43 @@ end
 
 local function GetPosIndex(x, z)
 	return x + (MAP_X + 1)*z
+end
+
+local function EdgeAdjacentToCellIndex(edge, cellIndex)
+	for i = 1, #edge.faces do
+		if edge.faces[i].index == cellIndex then
+			return true
+		end
+	end
+	return false
+end
+
+local function GetClockwiseIntAndEdge(edge, cellIndex)
+	for n = 1, #edge.neighbours do
+		local nbhd = edge.neighbours[n]
+		for i = 1, #nbhd do
+			local otherEdge = nbhd[i]
+			if edge.clockwiseNeighbour[otherEdge.index] and EdgeAdjacentToCellIndex(otherEdge, cellIndex) then
+				return edge[n], otherEdge
+			end
+		end
+	end
+end
+
+local function GetCellVertices(cell)
+	local cellIndex = cell.index
+	local startEdge = cell.edges[1]
+	local points = {}
+	
+	local intPoint, thisEdge = GetClockwiseIntAndEdge(startEdge, cellIndex)
+	points[#points + 1] = intPoint
+	
+	while thisEdge.index ~= startEdge.index do
+		intPoint, thisEdge = GetClockwiseIntAndEdge(thisEdge, cellIndex)
+		points[#points + 1] = intPoint
+	end
+	
+	return points
 end
 
 --------------------------------------------------------------------------------
@@ -667,11 +705,11 @@ end
 -- Base terrain generation
 
 local function GetWave(translational, params)
-	local spread = params.spread or ((params.spreadMin or 1) + ((params.spreadMax or 1) - (params.spreadMin or 1))*math.random())
-	local scale  = params.scale  or ((params.scaleMin  or 1) + ((params.scaleMax  or 1) - (params.scaleMin  or 1))*math.random())
-	local period = params.period or ((params.periodMin or 1) + ((params.periodMax or 1) - (params.periodMin or 1))*math.random())
-	local offset = params.offset or ((params.offsetMin or 1) + ((params.offsetMax or 1) - (params.offsetMin or 1))*math.random())
-	local growth = params.growth or ((params.growthMin or 1) + ((params.growthMax or 1) - (params.growthMin or 1))*math.random())
+	local spread = params.spread or ((params.spreadMin or 1) + ((params.spreadMax or 1) - (params.spreadMin or 1))*random())
+	local scale  = params.scale  or ((params.scaleMin  or 1) + ((params.scaleMax  or 1) - (params.scaleMin  or 1))*random())
+	local period = params.period or ((params.periodMin or 1) + ((params.periodMax or 1) - (params.periodMin or 1))*random())
+	local offset = params.offset or ((params.offsetMin or 1) + ((params.offsetMax or 1) - (params.offsetMin or 1))*random())
+	local growth = params.growth or ((params.growthMin or 1) + ((params.growthMax or 1) - (params.growthMin or 1))*random())
 
 	scale = scale*GetRandomSign()
 	growth = growth*GetRandomSign()
@@ -687,11 +725,11 @@ local function GetWave(translational, params)
 	
 	if translational then
 		dir =  translational and GetRandomDir()
-		wavePeriod = translational and math.ceil(params.wavePeriod or ((params.wavePeriodMin or 1) + ((params.wavePeriodMax or 1) - (params.wavePeriodMin or 1))*math.random()))
+		wavePeriod = translational and math.ceil(params.wavePeriod or ((params.wavePeriodMin or 1) + ((params.wavePeriodMax or 1) - (params.wavePeriodMin or 1))*random()))
 		wavePeriod = wavePeriod/(2*pi)
 	else
-		zeroAngle = (not translational) and math.random()*2*pi
-		local waveRotations = (not translational) and (params.waveRotations or ((params.waveRotationsMin or 1) + ((params.waveRotationsMax or 1) - (params.waveRotationsMin or 1))*math.random()))
+		zeroAngle = (not translational) and random()*2*pi
+		local waveRotations = (not translational) and (params.waveRotations or ((params.waveRotationsMin or 1) + ((params.waveRotationsMax or 1) - (params.waveRotationsMin or 1))*random()))
 		waveRotations = math.ceil(waveRotations/2)*2 -- Must be even for twofold rotational symmetry
 		wavePeriod = 1/waveRotations
 		
@@ -1279,8 +1317,6 @@ local function MirrorEdgePassability(edge)
 	mirror.highTeir     = edge.highTeir
 	mirror.vehPass      = edge.vehPass
 	mirror.botPass      = edge.botPass
-	
-	LineEcho(mirror, mirror.terrainWidth)
 end
 
 local function SetEdgePassability(edge)
@@ -1312,20 +1348,20 @@ local function SetEdgePassability(edge)
 		end
 	end
 	
-	if edge.length < 600 and (impassCount == 0 or impassCount == 2) then
+	if edge.length < 600 and ((impassCount == 0) or (matchCount - impassCount == 0)) then
 		edge.terrainWidth = ((impassCount == 0) and 300) or 38
 	else
-		edge.terrainWidth = ((math.random() > 0.35) and 300) or 38
+		edge.terrainWidth = ((random() > 0.35) and 300) or 38
 	end
 	
-	if edge.terrainWidth > 200 and edge.teirDiff == 2 and (math.random() > 0.6) then
-		edge.terrainWidth = 600
+	if edge.terrainWidth > 200 and (random() > 0.5) then
+		edge.terrainWidth = edge.terrainWidth*edge.teirDiff
 	end
 	
 	if (edge.terrainWidth < 100) or (edge.teirDiff > 3) then
 		edge.vehPass = false
 		edge.botPass = false
-	elseif (edge.terrainWidth < 400 and edge.teirDiff == 1) or (edge.terrainWidth < 800 and edge.teirDiff == 2) then
+	elseif (edge.terrainWidth/edge.teirDiff < 400) then
 		edge.vehPass = true
 		edge.botPass = true
 	else
@@ -1335,15 +1371,11 @@ local function SetEdgePassability(edge)
 	
 end
 
-local function GenerateEdgePassability(cells, edges)
-	local edgesSorted = Spring.Utilities.CopyTable(edges, false)
-	table.sort(edgesSorted, CompareLengthSq)
-	
+local function GenerateEdgePassability(edgesSorted)
 	for i = 1, #edgesSorted do
 		local thisEdge = edgesSorted[i]
 		if not thisEdge.terrainWidth then
 			SetEdgePassability(thisEdge)
-			LineEcho(thisEdge, thisEdge.terrainWidth)
 			MirrorEdgePassability(thisEdge)
 		end
 	end
@@ -1413,7 +1445,7 @@ local function GenerateCellTiers(cells, waveFunc)
 	end
 	std = sqrt(std/#cells)
 	
-	local waterFator = math.random()
+	local waterFator = random()
 	
 	local bucketWidth = 80 + std/2
 	local tierHeight = 110
@@ -1439,16 +1471,30 @@ local function GenerateCellTiers(cells, waveFunc)
 	return tierConst, tierHeight, tierMin, tierMax
 end
 
-local function SetStartCells(cells)
-	local topLeftCell = cells[GetClosestCell({0, 0}, cells)]
-	local startCells = {topLeftCell}
-	for i = 1, #topLeftCell.neighbours do
-		if topLeftCell.neighbours[i].mirror then
-			startCells[#startCells + 1] = topLeftCell.neighbours[i]
+local function SetStartCells(cells, edgesSorted)
+	local startCell
+	for i = 1, #edgesSorted do
+		local thisEdge = edgesSorted[i]
+		if #thisEdge.faces == 1 then
+			local thisCell = thisEdge.faces[1]
+			if thisCell.mirror and thisCell.height > 4 then
+				startCell = thisEdge.faces[1]
+				if random() < 0.4 then
+					break
+				end
+			end
 		end
 	end
 	
-	return startCells
+	return {startCell, startCell.mirror}
+end
+
+local function SetStatboxData(startCells)
+	GG.mapgen_startBoxes = {}
+	for i = 1, #startCells do
+		local cell = startCells[i]
+		GG.mapgen_startBoxes[#GG.mapgen_startBoxes + 1] = GetCellVertices(cell)
+	end
 end
 
 --------------------------------------------------------------------------------
@@ -1469,10 +1515,14 @@ function gadget:Initialize()
 	local cells, edges = GenerateVoronoi(18, 400, 500)
 	toDraw = edges
 	
-	local tierConst, tierHeight, tierMin, tierMax = GenerateCellTiers(cells, waveFunc)
-	GenerateEdgePassability(cells, edges)
+	local edgesSorted = Spring.Utilities.CopyTable(edges, false)
+	table.sort(edgesSorted, CompareLength)
 	
-	startCells = SetStartCells(cells)
+	local tierConst, tierHeight, tierMin, tierMax = GenerateCellTiers(cells, waveFunc)
+	GenerateEdgePassability(edgesSorted)
+	
+	startCells = SetStartCells(cells, edgesSorted)
+	SetStatboxData(startCells)
 	
 	--for i = 1, #startCells do
 	--	CellEcho(startCells[i])

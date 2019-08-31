@@ -164,9 +164,10 @@ local function SetMapTexture(texturePool, mapTexX, mapTexZ, topTexX, topTexZ, to
 		if texX then
 			glTexture(texturePool[i].texture)
 			for j = 1, #texX do
-				local heightMult = 1 + mapHeight[texX[j]][texZ[j]]/300
-				glColor(heightMult, heightMult, heightMult, texAlpha[j])
-				glRenderToTexture(fulltex, DrawTexBlock, texX[j], texZ[j])
+				if texAlpha[j] > 0.01 then
+					glColor(1, 1, 1, texAlpha[j])
+					glRenderToTexture(fulltex, DrawTexBlock, texX[j], texZ[j])
+				end
 			end
 		end
 	end
@@ -535,6 +536,6 @@ function gadget:Update(n)
 	updateCount = updateCount + 1
 	if updateCount > 2 then
 		updateCount = false
-		--MakeMapTexture()
+		MakeMapTexture()
 	end
 end
