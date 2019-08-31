@@ -1372,7 +1372,8 @@ local function SetEdgePassability(edge)
 end
 
 local function GenerateEdgePassability(edgesSorted)
-	for i = 1, #edgesSorted do
+	-- Smallest to largest
+	for i = #edgesSorted, 1, -1 do
 		local thisEdge = edgesSorted[i]
 		if not thisEdge.terrainWidth then
 			SetEdgePassability(thisEdge)
@@ -1534,6 +1535,7 @@ function gadget:Initialize()
 	local heights = ApplyHeightModifiers(tierConst, tierHeight, tierMin, tierMax, tiers, heightMod)
 	
 	TerraformByHeights(heights)
+	GG.mapgen_origHeight = heights
 end
 
 function gadget:GameFrame()

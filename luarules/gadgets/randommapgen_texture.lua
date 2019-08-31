@@ -198,9 +198,13 @@ local function SetMapTexture(texturePool, mapTexX, mapTexZ, topTexX, topTexZ, to
 	local texOut = fulltex
 	Spring.Echo("Starting to render SquareTextures")
 	
+	GG.mapgen_squareTexture = {}
 	local ago3 = Spring.GetTimer()
 	for x = 0, MAP_X - 1, SQUARE_SIZE do -- Create sqr textures for each sqr
+		local sx = floor(x/SQUARE_SIZE)
+		GG.mapgen_squareTexture[sx] = {}
 		for z = 0, MAP_Z - 1, SQUARE_SIZE do
+			local sz = floor(z/SQUARE_SIZE)
 			local squareTex = glCreateTexture(SQUARE_SIZE/BLOCK_SIZE, SQUARE_SIZE/BLOCK_SIZE,
 				{
 					border = false,
@@ -215,7 +219,9 @@ local function SetMapTexture(texturePool, mapTexX, mapTexZ, topTexX, topTexZ, to
 			glRenderToTexture(squareTex, DrawTextureOnSquare, 0, 0, SQUARE_SIZE, x/MAP_X, z/MAP_Z, SQUARE_SIZE/MAP_X, SQUARE_SIZE/MAP_Z)
 			glTexture(false)
 			gl.GenerateMipmap(squareTex)
-			Spring.SetMapSquareTexture((x/SQUARE_SIZE),(z/SQUARE_SIZE), squareTex)
+			Spring.SetMapSquareTexture(sx, sz, squareTex)
+			GG.mapgen_squareTexture[sx][sz] = squareTex
+			GG.mapgen_fulltex = fulltex
 		end
 	end
 	cur = Spring.GetTimer()
@@ -230,13 +236,6 @@ local function SetMapTexture(texturePool, mapTexX, mapTexZ, topTexX, topTexZ, to
 	end
 	gl.DeleteTextureFBO(fulltex)
 	
-	if fulltex and fulltex ~= usedgrass and fulltex ~= usedminimap then -- delete unused textures
-		glDeleteTexture(fulltex)
-		if texOut and texOut == fulltex then
-			texOut = nil
-		end
-		fulltex = nil
-	end
 	if texOut and texOut ~= usedgrass and texOut ~= usedminimap then
 		glDeleteTexture(texOut)
 		texOut = nil
