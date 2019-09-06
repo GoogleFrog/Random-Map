@@ -750,6 +750,7 @@ local function GetWave(translational, params)
 			normal = abs(normal - sin(tangent/wavePeriod)*spread)
 		else
 			normal  = sqrt(x^2 + z^2)
+			normal  = (normal*normal)/(4 + normal)
 			tangent = Angle(x,z) + zeroAngle
 			-- *(normal/(normal + stretchReduction))
 			-- Implement scale spread
@@ -1160,7 +1161,7 @@ local function ApplyLineDistanceFunc(tierFlood, cellTier, otherTier, heightMod, 
 			local tangDist = vx*tdx + vz*tdz
 			
 			local tangDistAbs = abs(tangDist)
-			if projDist > -8 and projDist < lineLength + 8 and tangDistAbs < 32 then
+			if projDist > -8 and projDist < lineLength + 8 and tangDistAbs < 40 then
 				if projDist < 0 then
 					tangDistAbs = tangDistAbs - projDist*3
 				elseif projDist > lineLength then
@@ -1317,14 +1318,21 @@ local function MirrorEdgePassability(edge)
 	mirror.highTeir     = edge.highTeir
 	mirror.vehPass      = edge.vehPass
 	mirror.botPass      = edge.botPass
+	mirror.waterEdge    = edge.waterEdge
 end
+
+local CLIFF_WIDTH = 36
+local RAMP_WIDTH  = 320
 
 local function SetEdgePassability(edge)
 	edge.teirDiff = (edge.faces and (#edge.faces == 2) and abs(edge.faces[1].tier - edge.faces[2].tier)) or 0
 	edge.highTeir = edge.faces and (#edge.faces == 2) and max(edge.faces[1].tier, edge.faces[2].tier)
+	edge.lowTeir = edge.faces and (#edge.faces == 2) and min(edge.faces[1].tier, edge.faces[2].tier)
 	if not edge.highTeir then
 		edge.highTeir = edge.faces[1].tier
+		edge.lowTeir = edge.faces[1].tier
 	end
+	edge.waterEdge = (edge.lowTeir < -1)
 	
 	if edge.teirDiff == 0 then
 		edge.vehPass = true
@@ -1349,19 +1357,25 @@ local function SetEdgePassability(edge)
 	end
 	
 	if edge.length < 600 and ((impassCount == 0) or (matchCount - impassCount == 0)) then
-		edge.terrainWidth = ((impassCount == 0) and 300) or 38
+		edge.terrainWidth = ((impassCount == 0) and RAMP_WIDTH) or CLIFF_WIDTH
 	else
-		edge.terrainWidth = ((random() > 0.35) and 300) or 38
+		edge.terrainWidth = ((random() > 0.35) and RAMP_WIDTH) or CLIFF_WIDTH
 	end
 	
-	if edge.terrainWidth > 200 and (random() > 0.5) then
-		edge.terrainWidth = edge.terrainWidth*edge.teirDiff
+	if edge.teirDiff > 1 then
+		if edge.terrainWidth >= RAMP_WIDTH then
+			if (random() > 0.5) then
+				edge.terrainWidth = edge.terrainWidth*edge.teirDiff*1.4
+			end
+		elseif edge.terrainWidth <= CLIFF_WIDTH then
+			edge.terrainWidth = edge.terrainWidth*edge.teirDiff
+		end
 	end
 	
-	if (edge.terrainWidth < 100) or (edge.teirDiff > 3) then
+	if (edge.terrainWidth <= CLIFF_WIDTH) or (edge.teirDiff > 3) then
 		edge.vehPass = false
 		edge.botPass = false
-	elseif (edge.terrainWidth/edge.teirDiff < 400) then
+	elseif (edge.terrainWidth/edge.teirDiff >= RAMP_WIDTH) then
 		edge.vehPass = true
 		edge.botPass = true
 	else
@@ -1411,7 +1425,15 @@ local function GetHeightMod(tierMin, tierMax, posTier, posChange, x, z)
 	return tierChange
 end
 
-local function ApplyHeightModifiers(tierConst, tierHeight, tierMin, tierMax, tiers, heightMod)
+local function DistToWhole(val)
+	val = abs(val)%1
+	if val < 0.5 then
+		return val
+	end
+	return 1 - val
+end
+
+local function ApplyHeightModifiers(tierConst, tierHeight, tierMin, tierMax, tiers, heightMod, waveFunc, waveMult)
 	local heights = {}
 	
 	for x = 0, MAP_X, SQUARE_SIZE do
@@ -1420,6 +1442,12 @@ local function ApplyHeightModifiers(tierConst, tierHeight, tierMin, tierMax, tie
 			local posIndex = GetPosIndex(x, z)
 			local baseHeight = tierConst + tierHeight*tiers[x][z]
 			local change = GetHeightMod(tierMin, tierMax, tiers[x][z], heightMod[posIndex], x, z)
+			
+			if waveFunc then
+				local changeDist = DistToWhole(change)
+				baseHeight = baseHeight + waveFunc(x, z)*waveMult
+			end
+			
 			heights[x][z] = baseHeight + tierHeight*change
 		end
 	end
@@ -1500,10 +1528,25 @@ end
 
 --------------------------------------------------------------------------------
 --------------------------------------------------------------------------------
+-- Metal Spots
+
+local function GetPathDistances(cells, startCell, bla)
+
+end
+
+local function GetMetalValues(cells, edges, startCells)
+	local startCell = startCells[1]
+	
+	local seenCells = {}
+	
+end
+
+--------------------------------------------------------------------------------
+--------------------------------------------------------------------------------
 -- Callins
 
 -- Gameframe draw debug
-local toDraw = nil
+local toDrawEdges = nil
 local waitCount = 0
 
 function gadget:Initialize()
@@ -1514,7 +1557,7 @@ function gadget:Initialize()
 	--TerraformByFunc(waveFunc)
 	
 	local cells, edges = GenerateVoronoi(18, 400, 500)
-	toDraw = edges
+	toDrawEdges = edges
 	
 	local edgesSorted = Spring.Utilities.CopyTable(edges, false)
 	table.sort(edgesSorted, CompareLength)
@@ -1525,6 +1568,8 @@ function gadget:Initialize()
 	startCells = SetStartCells(cells, edgesSorted)
 	SetStatboxData(startCells)
 	
+	local metalValues = GetMetalValues(cells, edges, startCells)
+	
 	--for i = 1, #startCells do
 	--	CellEcho(startCells[i])
 	--	CellEcho(startCells[i].mirror)
@@ -1532,14 +1577,14 @@ function gadget:Initialize()
 	
 	local tierFlood, heightMod = ProcessEdges(cells, edges)
 	local tiers = tierFlood.RunFloodfillAndGetValues()
-	local heights = ApplyHeightModifiers(tierConst, tierHeight, tierMin, tierMax, tiers, heightMod)
+	local heights = ApplyHeightModifiers(tierConst, tierHeight, tierMin, tierMax, tiers, heightMod, waveFunc, 0.2)
 	
 	TerraformByHeights(heights)
 	GG.mapgen_origHeight = heights
 end
 
 function gadget:GameFrame()
-	if not toDraw then
+	if not toDrawEdges then
 		return
 	end
 	
@@ -1548,11 +1593,13 @@ function gadget:GameFrame()
 		return
 	end
 	
-	for i = 1, #toDraw do
-		LineDraw(toDraw[i])
+	for i = 1, #toDrawEdges do
+		local edge = toDrawEdges[i]
+		LineDraw(edge)
+		LineEcho(edge, MakeBoolString({edge.vehPass, edge.botPass, edge.waterEdge}))
 	end
 	
-	toDraw = nil
+	toDrawEdges = nil
 end
 
 --------------------------------------------------------------------------------
@@ -1581,7 +1628,6 @@ function CellEcho(cell)
 	PointEcho(cell.site, "Cell: " .. cell.index .. ", edges: " .. #cell.edges)
 	for k = 1, #cell.edges do
 		LineDraw(cell.edges[k])
-		--PointEcho(Add(thisCell.edges[k][1], {i*16, 0}), i)
 	end
 end
 

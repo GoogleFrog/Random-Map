@@ -39,8 +39,9 @@ local UHM_Z = UHM_HEIGHT/MAP_Z
 local BLOCK_SIZE  = 8
 local DRAW_OFFSET = 2 * BLOCK_SIZE/MAP_Z - 1
 
-local VEH_NORMAL = 0.892
-local BOT_NORMAL = 0.585
+local VEH_NORMAL     = 0.892
+local BOT_NORMAL     = 0.585
+local SHALLOW_HEIGHT = -22
 
 local USE_SHADING_TEXTURE = (Spring.GetConfigInt("AdvMapShading") == 1)
 
@@ -266,18 +267,20 @@ end
 --------------------------------------------------------------------------------
 --------------------------------------------------------------------------------
 
-local function GetSplatTex(vehiclePass, botPass, underWater)
-	if underWater then
+local function GetSplatTex(height, vehiclePass, botPass, inWater)
+	if inWater then
 		return 3
 	end
 	if vehiclePass then
 		return 1
+	elseif botPass then
+		return ((random() < 0.2) and 2) or 1
 	end
-	return ((random() < 0.75) and 2) or 1
+	return ((random() < 0.85) and 2) or 1
 end
 
-local function GetMainTex(vehiclePass, botPass, underWater)
-	if underWater then
+local function GetMainTex(height, vehiclePass, botPass, inWater)
+	if inWater then
 		if vehiclePass then
 			return 17
 		end
@@ -295,24 +298,33 @@ local function GetMainTex(vehiclePass, botPass, underWater)
 	return random(11, 15)
 end
 
-local function GetTopTex(normal, vehiclePass, botPass, underWater)
+local function GetTopTex(normal, height, vehiclePass, botPass, inWater)
+	if inWater then
+		if height < SHALLOW_HEIGHT then
+			return
+		end
+		local topTex = GetMainTex(height, vehiclePass, botPass, false)
+		local topAlpha = 0.7*(1 - (SHALLOW_HEIGHT - height)/SHALLOW_HEIGHT) + 0.28
+		return topTex, topAlpha
+	end
+	
 	if not botPass then
 		return
 	end
 	
 	local minNorm, maxNorm, topTex
 	if vehiclePass then
-		topTex = GetMainTex(false, true, underWater)
+		topTex = GetMainTex(height, false, true, underWater)
 		minNorm, maxNorm = VEH_NORMAL, 1
 	else
-		topTex = GetMainTex(false, false, underWater)
+		topTex = GetMainTex(height, false, false, underWater)
 		minNorm, maxNorm = BOT_NORMAL, VEH_NORMAL
 	end
 	
 	local textureProp = (1 - (normal - minNorm)/(maxNorm - minNorm))
 	local topAlpha
 	if vehiclePass then
-		topAlpha = 0.95*textureProp
+		topAlpha = 0.85*textureProp
 	else
 		topAlpha = 0.15*textureProp
 	end
@@ -327,11 +339,11 @@ local function GetSlopeTexture(x, z)
 	local height      = Spring.GetGroundHeight(x, z)
 	local vehiclePass = (normal > VEH_NORMAL)
 	local botPass     = (normal > BOT_NORMAL)
-	local underWater  = (height < -5)
+	local inWater     = (height < 0 and ((height < SHALLOW_HEIGHT) or (random() < height/SHALLOW_HEIGHT)))
 	
-	local topTex, topAlpha = GetTopTex(normal, vehiclePass, botPass, underWater)
+	local topTex, topAlpha = GetTopTex(normal, height, vehiclePass, botPass, inWater)
 	
-	return GetMainTex(vehiclePass, botPass, underWater), GetSplatTex(vehiclePass, botPass, underWater), topTex, topAlpha, height
+	return GetMainTex(height, vehiclePass, botPass, inWater), GetSplatTex(height, vehiclePass, botPass, inWater), topTex, topAlpha, height
 end
 
 local function InitializeTextures(useSplat, typemap)
