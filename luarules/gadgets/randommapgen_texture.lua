@@ -269,7 +269,10 @@ end
 
 local function GetSplatTex(height, vehiclePass, botPass, inWater)
 	if inWater then
-		return 3
+		if (height < SHALLOW_HEIGHT) or (random() < 0.5) then
+			return 3
+		end
+		return GetSplatTex(height, vehiclePass, botPass, false)
 	end
 	if vehiclePass then
 		return 1

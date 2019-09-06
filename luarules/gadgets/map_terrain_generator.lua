@@ -885,108 +885,6 @@ local function TerraformByFunc(func)
 	Spring.SetHeightMapFunc(DoTerra)
 end
 
-local function GetPointHeight(cells, edges, point)
-	local cellIndex = GetPointCell(point, cells)
-	local cell = cells[cellIndex]
-	local edgeIndex = GetClosestLine(point, cell.edges)
-	local edge = cell.edges[edgeIndex]
-	
-	local startToPoint = Subtract(point, edge[1])
-	
-	local projFactor = Dot(startToPoint, edge.unit)/edge.length
-	local edgeIncidence = ((projFactor < 0.5 and 1) or 2)
-	local nbhd = edge.neighbours[edgeIncidence]
-	
-	local otherEdge
-	for i = 1, #nbhd do
-		if cell.edgeMap[nbhd[i].index] then
-			otherEdge = nbhd[i]
-			break
-		end
-	end
-	
-	if not (edge.otherFace[cellIndex]) then
-		if not (otherEdge.otherFace[cellIndex]) then
-			return cell.height
-		end
-		return cell.height, cell.index
-	end
-	
-	if not (otherEdge.otherFace[cellIndex]) then
-		return cell.height, cell.index
-	end
-	
-	local cellTier = cell.tier
-	local topOfCliff = (cellTier > edge.otherFace[cellIndex].tier and cellTier > otherEdge.otherFace[cellIndex].tier)
-	local bottomOfCliff = (cellTier < edge.otherFace[cellIndex].tier and cellTier < otherEdge.otherFace[cellIndex].tier)
-	
-	if not (topOfCliff or bottomOfCliff) then
-		return cell.height, cell.index
-	end
-	
-	local otherHeight = edge.otherFace[cellIndex].height
-	if topOfCliff then
-		otherHeight = math.max(edge.otherFace[cellIndex].height, otherEdge.otherFace[cellIndex].height)
-	elseif bottomOfCliff then
-		otherHeight = math.min(edge.otherFace[cellIndex].height, otherEdge.otherFace[cellIndex].height)
-	end
-	
-	local intPoint = edge[edgeIncidence]
-	local intToPoint = Subtract(point, intPoint)
-	local otherIncidence = edge.incidentEnd[otherEdge.index]
-	
-	local edgeOut = Mult((-edgeIncidence + 1.5)*edge.length, edge.unit)
-	local otherOut = Mult((-otherIncidence + 1.5)*otherEdge.length, otherEdge.unit)
-	
-	local m1, m2, m3, m4 = InverseBasis(edgeOut[1], otherOut[1], edgeOut[2], otherOut[2])
-	local rotPoint = ChangeBasis(intToPoint, m1, m2, m3, m4)
-
-	if rotPoint[1] > 1 or rotPoint[2] > 1 then
-		return cell.height, cell.index
-	end
-	
-	local dist = sqrt((rotPoint[1] - 1)^2 + (rotPoint[2] - 1)^2)
-	if dist < 1 then
-		return cell.height, cell.index
-	end
-	
-	return otherHeight, cell.index
-end
-
-local function TerraformByCellHeightSmooth(cells, edges)
-	local function DoTerra()
-		local point = {0, 0}
-		for x = 0, MAP_X, SQUARE_SIZE do
-			for z = 0, MAP_Z, SQUARE_SIZE do
-				point[1], point[2] = x, z
-				spSetHeightMap(x, z, GetPointHeight(cells, edges, point))
-			end
-			Spring.ClearWatchDogTimer()
-		end
-	end
-
-	Spring.SetHeightMapFunc(DoTerra)
-end
-
-local function TerraformByCellHeight(cells)
-	local function DoTerra()
-		local point = {0, 0}
-		for x = 0, MAP_X, SQUARE_SIZE do
-			for z = 0, MAP_Z, SQUARE_SIZE do
-				point[1], point[2] = x, z
-				local cellIndex = GetPointCell(point, cells)
-				local cell = cells[cellIndex]
-				--local edgeIndex = GetClosestLine(point, cell.edges)
-				--spSetHeightMap(x, z, func(cells[cellIndex].site[1], cells[cellIndex].site[2]) + 2*edgeIndex)
-				spSetHeightMap(x, z, cells[cellIndex].height)
-			end
-			Spring.ClearWatchDogTimer()
-		end
-	end
-
-	Spring.SetHeightMapFunc(DoTerra)
-end
-
 local function TerraformByHeights(heights)
 	local minHeight, maxHeight = 4000, -4000
 
@@ -1066,14 +964,6 @@ end
 --------------------------------------------------------------------------------
 --------------------------------------------------------------------------------
 -- Process Edges
-
-local function GetHalfEdgeLine(edge, intPoint)
-	local intOut = Unit(Subtract(GetMidpoint(edge), intPoint))
-	for i = 0, STRAIGHT_EDGE_POINTS do
-		local point = Add(intPoint, Mult(i*edge.length/(2*STRAIGHT_EDGE_POINTS), intOut))
-		PointEcho(point, i)
-	end
-end
 
 local function GetSlopeWidth(startWidth, endWidth, startDist, endDist, dist)
 	local propDist = startDist + dist*(endDist - startDist)
@@ -1362,7 +1252,7 @@ local function SetEdgePassability(edge)
 		edge.terrainWidth = ((random() > 0.35) and RAMP_WIDTH) or CLIFF_WIDTH
 	end
 	
-	if edge.teirDiff > 1 then
+	if edge.teirDiff >= 2 and edge.teirDiff <= 3 then
 		if edge.terrainWidth >= RAMP_WIDTH then
 			if (random() > 0.5) then
 				edge.terrainWidth = edge.terrainWidth*edge.teirDiff*1.4
