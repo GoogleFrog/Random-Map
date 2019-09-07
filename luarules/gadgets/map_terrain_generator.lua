@@ -791,12 +791,28 @@ end
 -- Base terrain generation
 
 local function GetWave(translational, params)
-	local spread = params.spread or ((params.spreadMin or 1) + ((params.spreadMax or 1) - (params.spreadMin or 1))*random())
-	local scale  = params.scale  or ((params.scaleMin  or 1) + ((params.scaleMax  or 1) - (params.scaleMin  or 1))*random())
-	local period = params.period or ((params.periodMin or 1) + ((params.periodMax or 1) - (params.periodMin or 1))*random())
-	local offset = params.offset or ((params.offsetMin or 1) + ((params.offsetMax or 1) - (params.offsetMin or 1))*random())
-	local growth = params.growth or ((params.growthMin or 1) + ((params.growthMax or 1) - (params.growthMin or 1))*random())
-
+	local spread     = params.spread or ((params.spreadMin or 1) + ((params.spreadMax or 1) - (params.spreadMin or 1))*random())
+	local scale      = params.scale  or ((params.scaleMin  or 1) + ((params.scaleMax  or 1) - (params.scaleMin  or 1))*random())
+	local period     = params.period or ((params.periodMin or 1) + ((params.periodMax or 1) - (params.periodMin or 1))*random())
+	local offset     = params.offset or ((params.offsetMin or 1) + ((params.offsetMax or 1) - (params.offsetMin or 1))*random())
+	local growth     = params.growth or ((params.growthMin or 1) + ((params.growthMax or 1) - (params.growthMin or 1))*random())
+	
+	local wavePeriod = math.ceil(params.wavePeriod or ((params.wavePeriodMin or 1) + ((params.wavePeriodMax or 1) - (params.wavePeriodMin or 1))*random()))
+	
+	if params.spreadScaleMin and params.spreadScaleMax then
+		local spreadScale = (params.spreadScaleMin + (params.spreadScaleMax - params.spreadScaleMin)*random())
+		spread = spread*0.5 + wavePeriod*spreadScale*0.5
+	end
+	
+	-- scale         - Amplitude of main waves.
+	-- period        - Period of main waves.
+	-- offset        - Constant added to waves.
+	-- growth        - Peak-to-peak scaling factor of scale.
+	-- spread        - Amplitude of transverse sub-waves.
+	-- wavePeriod    - Period of the sub-waves in translational waves.
+	-- waveRotations - Even integer that sets the rotational symmetry of sub-wave that occur along the rotational waves.
+	-- spreadScale   - Sets spread to the average of spread and wavePeriod*spreadScale
+	
 	scale = scale*GetRandomSign()
 	growth = growth*GetRandomSign()
 	
@@ -807,11 +823,10 @@ local function GetWave(translational, params)
 	-- Period is peak-to-peak distance.
 	period = period/(2*pi)
 	
-	local dir, wavePeriod, zeroAngle, stretchReduction
+	local dir, zeroAngle, stretchReduction
 	
 	if translational then
-		dir =  translational and GetRandomDir()
-		wavePeriod = translational and math.ceil(params.wavePeriod or ((params.wavePeriodMin or 1) + ((params.wavePeriodMax or 1) - (params.wavePeriodMin or 1))*random()))
+		dir = GetRandomDir()
 		wavePeriod = wavePeriod/(2*pi)
 	else
 		zeroAngle = (not translational) and random()*2*pi
@@ -827,23 +842,23 @@ local function GetWave(translational, params)
 		x = x - MID_X
 		z = z - MID_Z
 		
-		local normal, tangent
+		local distance, tranDist
 		if translational then
-			normal  = dir[1]*x + dir[2]*z
-			tangent = dir[1]*z - dir[2]*x
+			distance  = dir[1]*x + dir[2]*z
+			tranDist  = dir[1]*z - dir[2]*x
 			
 			-- Implement translate spread
-			normal = abs(normal - sin(tangent/wavePeriod)*spread)
+			distance = abs(distance - sin(tranDist/wavePeriod)*spread)
 		else
-			normal  = sqrt(x^2 + z^2)
-			normal  = (normal*normal)/(180 + normal)
-			tangent = Angle(x,z) + zeroAngle
-			-- *(normal/(normal + stretchReduction))
+			distance  = sqrt(x^2 + z^2)
+			distance  = (distance*distance)/(180 + distance)
+			tranDist  = Angle(x,z) + zeroAngle
+			-- *(distance/(distance + stretchReduction))
 			-- Implement scale spread
-			normal = abs(normal*(1 + sin(tangent/wavePeriod)*spread))
+			distance = abs(distance*(1 + sin(tranDist/wavePeriod)*spread))
 		end
 		
-		return -1*(cos((normal/period)) - 1)*(normal*growth + scale) + offset
+		return -1*(cos((distance/period)) - 1)*(distance*growth + scale) + offset
 	end
 	
 	return GetValue
@@ -873,6 +888,8 @@ local function GetTerrainWaveFunction()
 		wavePeriodMax = 2600,
 		waveRotationsMin = 1,
 		waveRotationsMax = 8,
+		spreadScaleMin = 0.2,
+		spreadScaleMax = 0.4,
 	}
 	
 	local params = {
@@ -890,6 +907,8 @@ local function GetTerrainWaveFunction()
 		wavePeriodMax = 1700,
 		waveRotationsMin = 1,
 		waveRotationsMax = 8,
+		spreadScaleMin = 0.025,
+		spreadScaleMax = 0.07,
 	}
 	
 	local rotParams = {
@@ -920,7 +939,7 @@ local function GetTerrainWaveFunction()
 		offsetMax = 0.4,
 		growthMin = 0.02,
 		growthMax = 0.2,
-		wavePeriodMin = 2000,
+		wavePeriodMin = 3500,
 		wavePeriodMax = 5000,
 		waveRotationsMin = 1,
 		waveRotationsMax = 8,

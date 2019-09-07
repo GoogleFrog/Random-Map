@@ -342,7 +342,7 @@ end
 local function GetSlopeTexture(x, z)
 	x, z = x + BLOCK_SIZE/2, z + BLOCK_SIZE/2
 	
-	local normal      = select(2, Spring.GetGroundNormal(x, z))
+	local normal      = select(2, Spring.GetGroundNormal(x, z, true))
 	local height      = Spring.GetGroundHeight(x, z)
 	local vehiclePass = (normal > VEH_NORMAL)
 	local botPass     = (normal > BOT_NORMAL)

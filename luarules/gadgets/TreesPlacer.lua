@@ -26,7 +26,7 @@ if (gadgetHandler:IsSyncedCode()) then  --Sync
 	end
 	
 	local function GetTreeSlopeChance(x, z)
-		local normal      = select(2, Spring.GetGroundNormal(x, z))
+		local normal      = select(2, Spring.GetGroundNormal(x, z, true))
 		local height      = Spring.GetGroundHeight(x, z)
 		if (normal > MAX_NORMAL) then
 			return 1
