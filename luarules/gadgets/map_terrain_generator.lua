@@ -13,7 +13,7 @@ function gadget:GetInfo()
 		author    = "GoogleFrog",
 		date      = "14 August 2019",
 		license   = "GNU GPL, v2 or later",
-		layer    = -math.huge + 5,
+		layer    = -math.huge + 2,
 		enabled   = true  --  loaded by default?
 	}
 end
@@ -295,17 +295,18 @@ local function GetClosestCell(point, nearCells)
 	return closeIndex, closeDistSq
 end
 
-local function GetClosestLine(point, nearLines)
+local function GetClosestLine(point, nearLines, FilterFunc)
 	if not nearLines[1] then
 		return false
 	end
-	local closeIndex = 1
-	local closeDistSq = DistanceToLineSq(point, nearLines[1])
-	for i = 2, #nearLines do
-		local thisDistSq = DistanceToLineSq(point, nearLines[i])
-		if thisDistSq < closeDistSq then
-			closeIndex = i
-			closeDistSq = thisDistSq
+	local closeIndex, closeDistSq
+	for i = 1, #nearLines do
+		if (not FilterFunc) or FilterFunc(nearLines[i]) then
+			local thisDistSq = DistanceToLineSq(point, nearLines[i])
+			if (not closeDistSq) or (thisDistSq < closeDistSq) then
+				closeIndex = i
+				closeDistSq = thisDistSq
+			end
 		end
 	end
 	
@@ -345,6 +346,27 @@ local function GetRandomPoint(avoidDist, avoidPoints, maxAttempts, useOtherSize)
 	end
 	
 	return point
+end
+
+local function GetRandomPointInCircle(pos, radius, edgeBuffer)
+	local randomPos = Add(pos, Mult(radius*random()^2, GetRandomDir()))
+	if not edgeBuffer then
+		return randomPos
+	end
+	
+	if randomPos[1] < edgeBuffer then
+		randomPos[1] = edgeBuffer
+	elseif randomPos[1] > MAP_X - edgeBuffer then
+		randomPos[1] = MAP_X - edgeBuffer
+	end
+	
+	if randomPos[2] < edgeBuffer then
+		randomPos[2] = edgeBuffer
+	elseif randomPos[2] > MAP_Z - edgeBuffer then
+		randomPos[2] = MAP_Z - edgeBuffer
+	end
+	
+	return randomPos
 end
 
 local function ApplyRotSymmetry(p1, p2)
@@ -632,6 +654,15 @@ local function CleanVoronoiReferences(cells)
 			for j = 1, #thisEdge.faces do
 				thisEdge.otherFace[thisEdge.faces[j].index] = thisEdge.faces[3 - j]
 			end
+			if thisEdge.faces[1].mirror == thisEdge.faces[2] then
+				thisEdge.faces[1].adjacentToMirror = true
+				thisEdge.faces[2].adjacentToMirror = true
+			end
+		else
+			if thisEdge.faces[1].adjacentToBorder then
+				thisEdge.faces[1].adjacentToCorner = true
+			end
+			thisEdge.faces[1].adjacentToBorder = true
 		end
 		
 		if thisEdge.length < MIN_EDGE_LENGTH then
@@ -694,10 +725,12 @@ local function CleanVoronoiReferences(cells)
 		end
 	end
 	
+	-- Some useful cell parameters.
 	for i = 1, #cells do
 		local thisCell = cells[i]
 		thisCell.vertices = GetCellVertices(thisCell)
 		thisCell.averageMid = AveragePoints(thisCell.vertices)
+		thisCell.firstMirror = ((not thisCell.mirror) or (thisCell.index < thisCell.mirror.index))
 	end
 	
 	return cells, edgeList
@@ -803,7 +836,7 @@ local function GetWave(translational, params)
 			normal = abs(normal - sin(tangent/wavePeriod)*spread)
 		else
 			normal  = sqrt(x^2 + z^2)
-			normal  = (normal*normal)/(4 + normal)
+			normal  = (normal*normal)/(180 + normal)
 			tangent = Angle(x,z) + zeroAngle
 			-- *(normal/(normal + stretchReduction))
 			-- Implement scale spread
@@ -955,10 +988,10 @@ local function TerraformByHeights(heights)
 			end
 			Spring.ClearWatchDogTimer()
 		end
+		
+		Spring.SetGameRulesParam("ground_min_override", minHeight)
+		Spring.SetGameRulesParam("ground_max_override", maxHeight)
 	end
-	
-	Spring.SetGameRulesParam("ground_min_override", minHeight)
-	Spring.SetGameRulesParam("ground_max_override", maxHeight)
 
 	Spring.SetHeightMapFunc(DoTerra)
 end
@@ -967,7 +1000,7 @@ end
 --------------------------------------------------------------------------------
 -- Floodfill handler
 
-local function GetFloodfillHandler()
+local function GetFloodfillHandler(defaultValue)
 	local values = {}
 	local influenceDist = {}
 	local fillX = {}
@@ -1004,6 +1037,14 @@ local function GetFloodfillHandler()
 	end
 	
 	function externalFuncs.RunFloodfillAndGetValues()
+		if #fillX == 0 then
+			for x = 0, MAP_X, SQUARE_SIZE do
+				values[x] = {}
+				for z = 0, MAP_Z, SQUARE_SIZE do
+					values[x][z] = defaultValue
+				end
+			end
+		end
 		while #fillX > 0 do
 			local x, z = fillX[#fillX], fillZ[#fillZ]
 			fillX[#fillX], fillZ[#fillZ] = nil, nil
@@ -1234,7 +1275,7 @@ end
 
 local function ProcessEdges(cells, edges)
 	local heightMod = {}
-	local tierFlood = GetFloodfillHandler()
+	local tierFlood = GetFloodfillHandler(cells[1].tier)
 	for i = 1, #edges do
 		local thisEdge = edges[i]
 		for n = 1, #thisEdge.neighbours do
@@ -1536,6 +1577,67 @@ local function GetStraightDistances(cells, startCell, distName)
 	end
 end
 
+local function HasTierDiff(edge)
+	return (edge.teirDiff ~= 0)
+end
+
+local function GetRandomMexPos(mexes, edges, pos, megaMex, placeRadius, maxRadius)
+	local tries = 0
+	local pointAvoid = 250
+	local lineAvoid  = 300
+	
+	local randomPoint
+	while tries < 50 do
+		randomPoint = GetRandomPointInCircle(pos, placeRadius, 100)
+		local _, lineDistSq = GetClosestLine(randomPoint, edges, HasTierDiff)
+		if (not lineDistSq) or (lineAvoid^2 < lineDistSq) then
+			local _, pointDist = GetClosestPoint(randomPoint, mexes)
+			if (not pointDist) or (pointAvoid < pointDist) then
+				return randomPoint
+			end
+		end
+		pointAvoid  = max(pointAvoid  - 10, 150)
+		lineAvoid   = max(lineAvoid   - 20, 20)
+		placeRadius = min(placeRadius + 20, maxRadius)
+		
+		tries = tries + 1
+	end
+	
+	PointEcho(randomPoint, "FAILED")
+	
+	return false
+end
+
+local function PlaceMex(mexes, edges, pos, megaMex)
+	local mexPos = GetRandomMexPos(mexes, edges, pos, megaMex, (megaMex and 50) or 450, (megaMex and 300) or 450)
+	if not mexPos then
+		return
+	end
+	local mirrorMexPos = ApplyRotSymmetry(mexPos)
+	local mexValue = ((megaMex and 4) or 2)
+	
+	if Dist(mexPos, mirrorMexPos) > 120 then
+		mexes[#mexes + 1] = mexPos
+		mexes[#mexes + 1] = mirrorMexPos
+		
+		GG.mapgen_mexList = GG.mapgen_mexList or {}
+		GG.mapgen_mexList[#GG.mapgen_mexList + 1] = {x = mexPos[1], z = mexPos[2], metal = mexValue}
+		GG.mapgen_mexList[#GG.mapgen_mexList + 1] = {x = mirrorMexPos[1], z = mirrorMexPos[2], metal = mexValue}
+	else
+		mexPos = {MID_X, MID_Z}
+		mexes[#mexes + 1] = mexPos
+		GG.mapgen_mexList = GG.mapgen_mexList or {}
+		GG.mapgen_mexList[#GG.mapgen_mexList + 1] = {x = mexPos[1], z = mexPos[2], metal = mexValue}
+	end
+end
+
+local function ReduceMexAllocation(cell, totalMexAlloc, allocFactor)
+	cell = (cell.firstMirror and cell) or cell.mirror
+	local allocChange = (cell.mexAlloc or 0)*(1 - allocFactor)
+	cell.mexAlloc = cell.mexAlloc and (cell.mexAlloc - allocChange)
+	return totalMexAlloc - allocChange
+end
+
 local function GetMetalValues(cells, edges, startCells)
 	local startCell = startCells[1]
 	
@@ -1584,34 +1686,42 @@ local function GetMetalValues(cells, edges, startCells)
 	local totalMexAlloc = 0
 	for i = 1, #cells do
 		local thisCell = cells[i]
-		local mirror = thisCell.mirror
-		local minBotDist = false
-		
-		if thisCell.landBotDist and mirror and mirror.landBotDist then
-			thisCell.startPathFactor = (abs(thisCell.landBotDist - mirror.landBotDist) - minPathDiff)/(maxPathDiff - minPathDiff)
-			minBotDist = min(thisCell.landBotDist, (mirror and mirror.landBotDist) or mirror.landBotDist)
-		else
-			thisCell.startPathFactor = 0
-		end
-		
-		if thisCell.straightDist and mirror and mirror.straightDist then
-			thisCell.startDistFactor = (thisCell.straightDist + mirror.straightDist - minDistSum)/(maxDistSum - minDistSum)
-		else
-			thisCell.startDistFactor = 0
-		end
-		
-		if (thisCell.landBotDist == 0) or (mirror and (mirror.landBotDist == 0)) then
-			thisCell.metalSpots = 3 + floor(random()*1.5)
-		elseif minBotDist then
-			thisCell.mexAlloc = thisCell.startPathFactor*1.5 + thisCell.startDistFactor*1.2 + 0.3
-			if minBotDist == 1 then
-				thisCell.mexAlloc = thisCell.mexAlloc + 0.15
+		if thisCell.firstMirror then
+			local mirror = thisCell.mirror
+			local minBotDist = false
+			
+			if thisCell.landBotDist and mirror and mirror.landBotDist then
+				thisCell.startPathFactor = (abs(thisCell.landBotDist - mirror.landBotDist) - minPathDiff)/(maxPathDiff - minPathDiff)
+				minBotDist = min(thisCell.landBotDist, (mirror and mirror.landBotDist) or mirror.landBotDist)
+			else
+				thisCell.startPathFactor = 0
 			end
-			totalMexAlloc = totalMexAlloc + thisCell.mexAlloc
+			
+			if thisCell.straightDist and mirror and mirror.straightDist then
+				thisCell.startDistFactor = (thisCell.straightDist + mirror.straightDist - minDistSum)/(maxDistSum - minDistSum)
+			else
+				thisCell.startDistFactor = 0
+			end
+			
+			if (thisCell.landBotDist == 0) or (mirror and (mirror.landBotDist == 0)) then
+				thisCell.metalSpots = 3
+			elseif minBotDist then
+				thisCell.mexAlloc = thisCell.startPathFactor*1.5 + thisCell.startDistFactor*1.2 + 0.2
+				if minBotDist == 1 then
+					--thisCell.mexAlloc = thisCell.mexAlloc + 0.1
+				end
+				if thisCell.adjacentToBorder then
+					thisCell.mexAlloc = thisCell.mexAlloc + 0.15
+				end
+				if thisCell.adjacentToCorner then
+					thisCell.mexAlloc = thisCell.mexAlloc + 0.35
+				end
+				totalMexAlloc = totalMexAlloc + thisCell.mexAlloc
+			end
 		end
 	end
 	
-	local mexSpots = random(28, 40)
+	local mexSpots = random(7, 12)
 	while mexSpots > 0 do
 		local mexCell = cells[random(1, #cells)]
 		local randAllocateSum = random()*totalMexAlloc
@@ -1626,38 +1736,42 @@ local function GetMetalValues(cells, edges, startCells)
 		end
 		
 		local allocChange = mexCell.mexAlloc or 0
-		local mexAssignment = floor(1.5 + random()*1.5)
-		if (mexCell.startPathFactor == 0) and (random() < 0.3) and ((not mexCell.mirror) or Dist(mexCell.averageMid, mexCell.mirror.averageMid) > 1600) then
-			mexCell.megaMex = true
-			mexSpots = mexSpots - mexAssignment
+		local mexAssignment = (((random() < 0.35) and 2) or 1)
+		if mexCell.adjacentToMirror then
+			mexAssignment = 1
 		end
 		
-		totalMexAlloc = totalMexAlloc - allocChange
-		mexCell.mexAlloc = mexCell.mexAlloc and (mexCell.mexAlloc - allocChange)
+		if (mexCell.startPathFactor == 0) and ((not mexCell.mirror) or Dist(mexCell.averageMid, mexCell.mirror.averageMid) > 1200) then
+			Spring.Echo("thisCellmexAllocthisCellmexAlloc", mexCell.mexAlloc)
+			if mexCell.mexAlloc and (random() < mexCell.mexAlloc/2) then
+				mexCell.megaMex = true
+				mexAssignment = 2
+			end
+		end
+		
+		totalMexAlloc = ReduceMexAllocation(mexCell, totalMexAlloc, 0)
+		local neighbourFactor = (((mexAssignment == 2) and 0.01) or 0.25)
+		for i = 1, #mexCell.neighbours do
+			totalMexAlloc = ReduceMexAllocation(mexCell.neighbours[i], totalMexAlloc, neighbourFactor)
+		end
 		mexCell.metalSpots = (mexCell.metalSpots or 0) + mexAssignment
-		
-		if mexCell.mirror then
-			totalMexAlloc = totalMexAlloc - allocChange
-			mexCell.mirror.mexAlloc = mexCell.mexAlloc
-			mexCell.mirror.metalSpots = mexCell.metalSpots
-			mexCell.mirror.megaMex = mexCell.megaMex
-			mexSpots = mexSpots - mexAssignment
-		end
 		
 		mexSpots = mexSpots - mexAssignment
 	end
 	
-	local mexFinalSum = 0
+	local mexes = {}
 	for i = 1, #cells do
 		local thisCell = cells[i]
-		local myDist = (thisCell.landBotDist or "inf")
-		local mirrorDist = ((thisCell.mirror and thisCell.mirror.landBotDist) or "inf")
-		mexFinalSum = mexFinalSum + (thisCell.metalSpots or 0)
-		PointEcho(thisCell.averageMid, "Metal Spots: " .. (thisCell.metalSpots or 0) .. ((thisCell.megaMex and " Mega") or ""))
-		--PointEcho(thisCell.averageMid, "Distance: " .. myDist .. ", Mirror: " .. mirrorDist .. ", Path: " .. thisCell.startPathFactor .. ", Dist: " .. thisCell.startDistFactor)
+		if thisCell.firstMirror then
+			if thisCell.megaMex then
+				PlaceMex(mexes, thisCell.edges, thisCell.averageMid, true)
+			elseif thisCell.metalSpots then
+				for j = 1, thisCell.metalSpots do
+					PlaceMex(mexes, thisCell.edges, thisCell.averageMid, false)
+				end
+			end
+		end
 	end
-	Spring.MarkerAddPoint(MID_X, 0, MID_Z, "Mex Sum: " .. mexFinalSum)
-	
 end
 
 --------------------------------------------------------------------------------
@@ -1668,15 +1782,32 @@ end
 local toDrawEdges = nil
 local waitCount = 0
 
+local function GetSeed()
+	local mapOpts = Spring.GetMapOptions()
+	if mapOpts and mapOpts.seed and tonumber(mapOpts.seed) ~= 0 then
+		return tonumber(mapOpts.seed)
+	end
+	
+	local modOpts = Spring.GetModOptions()
+	if modOpts and modOpts.mapgen_seed and tonumber(modOpts.mapgen_seed) ~= 0 then
+		return tonumber(modOpts.mapgen_seed)
+	end
+	
+	return random(1, 100000)
+end
+
 function gadget:Initialize()
-	local randomSeed = random(1, 100000)
+	local randomSeed = GetSeed()
+	-- 84989
 	-- 9661
 	-- 74370
 	-- 29669
-	-- 9498 hang in Voronoi
+	-- 9498
+	-- 93286 flat map
 	math.randomseed(randomSeed)
 
 	Spring.SetGameRulesParam("typemap", "temperate")
+	Spring.SetGameRulesParam("mapgen_enabled", 1)
 	
 	TimerEcho("Map Terrain Generation")
 	Spring.Echo("Random Seed", randomSeed)
@@ -1715,23 +1846,42 @@ function gadget:Initialize()
 	local heights = ApplyHeightModifiers(tierConst, tierHeight, tierMin, tierMax, tiers, heightMod, waveFunc, 0.2)
 	TimerEcho("Height application complete")
 	
+	--local smoothFilter = {
+	--	{0, 0, 1},
+	--	{8, 0, 0.9},
+	--	{-8, 0, 0.9},
+	--	{0, 8, 0.9},
+	--	{0, -8, 0.9},
+	--	{8, 8, 0.63},
+	--	{8, -8, 0.63},
+	--	{-8, 8, 0.63},
+	--	{-8, -8, 0.63},
+	--	{16, 0, 0.45},
+	--	{-16, 0, 0.45},
+	--	{0, 16, 0.45},
+	--	{0, -16, 0.45},
+	--}
 	local smoothFilter = {
 		{0, 0, 1},
-		{8, 0, 0.9},
-		{-8, 0, 0.9},
-		{0, 8, 0.9},
-		{0, -8, 0.9},
-		{8, 8, 0.63},
-		{8, -8, 0.63},
-		{-8, 8, 0.63},
-		{-8, -8, 0.63},
+		{8, 0, 1},
+		{-8, 0, 1},
+		{0, 8, 1},
+		{0, -8, 1},
+		{8, 8, 0.9},
+		{8, -8, 0.9},
+		{-8, 8, 0.9},
+		{-8, -8, 0.9},
+		{16, 0, 0.65},
+		{-16, 0, 0.65},
+		{0, 16, 0.65},
+		{0, -16, 0.65},
 	}
 	
-	heights = ApplyHeightSmooth(heights, smoothFilter)
+	local smoothHeights = ApplyHeightSmooth(heights, smoothFilter)
 	TimerEcho("Smoothing complete")
 	
-	TerraformByHeights(heights)
-	GG.mapgen_origHeight = heights
+	TerraformByHeights(smoothHeights)
+	GG.mapgen_origHeight = smoothHeights
 	TimerEcho("Map terrain generation complete")
 end
 

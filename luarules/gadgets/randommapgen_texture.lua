@@ -70,10 +70,10 @@ local floor  = math.floor
 local random = math.random
 
 local SPLAT_DETAIL_TEX_POOL = {
-	{1,0,0,1}, --R
-	{0,1,0,1}, --G
-	{0,0,1,1}, --B
-	{0,0,0,1}, --A
+	{0.7,0.0,0.0,1.0}, --R
+	{0.0,0.9,0.0,1.0}, --G
+	{0.0,0.0,1.0,1.0}, --B
+	{0.0,0.0,0.0,1.0}, --A
 }
 
 --------------------------------------------------------------------------------
@@ -156,6 +156,9 @@ local function SetMapTexture(texturePool, mapTexX, mapTexZ, topTexX, topTexZ, to
 	end
 	glTexture(false)
 	
+	local cur = Spring.GetTimer()
+	Spring.Echo("FullTex rendered in: "..(Spring.DiffTimers(cur, ago, true)))
+	
 	local ago = Spring.GetTimer()
 	gl.Blending(GL.SRC_ALPHA, GL.ONE_MINUS_SRC_ALPHA)
 	for i = 1, #texturePool do
@@ -176,7 +179,7 @@ local function SetMapTexture(texturePool, mapTexX, mapTexZ, topTexX, topTexZ, to
 	glTexture(false)
 	
 	local cur = Spring.GetTimer()
-	Spring.Echo("FullTex rendered in: "..(Spring.DiffTimers(cur, ago, true)))
+	Spring.Echo("TopTex rendered in: "..(Spring.DiffTimers(cur, ago, true)))
 	
 	if USE_SHADING_TEXTURE then
 		local ago2 = Spring.GetTimer()
@@ -292,11 +295,12 @@ local function GetMainTex(height, vehiclePass, botPass, inWater)
 		end
 		return 19
 	end
+	local heightPower = (height + 50)/200
 	if vehiclePass then
-		return random(1, 5)
+		return 1 + floor((random()^heightPower)*5)
 	end
 	if botPass then
-		return random(6, 10)
+		return 6 + floor((random()^heightPower)*5)
 	end
 	return random(11, 15)
 end
@@ -327,7 +331,7 @@ local function GetTopTex(normal, height, vehiclePass, botPass, inWater)
 	local textureProp = (1 - (normal - minNorm)/(maxNorm - minNorm))
 	local topAlpha
 	if vehiclePass then
-		topAlpha = 0.85*textureProp
+		topAlpha = 0.92*textureProp
 	else
 		topAlpha = 0.15*textureProp
 	end
@@ -425,27 +429,27 @@ local function GetTextureSet(textureSetName)
 			tile = 1,
 		},
 		[6] = {
-			texture = texturePath.."b1.png",
+			texture = texturePath.."b5.png",
 			size = 92,
 			tile = 1,
 		},
 		[7] = {
-			texture = texturePath.."b2.png",
+			texture = texturePath.."b1.png",
 			size = 92,
 			tile = 1,
 		},
 		[8] = {
-			texture = texturePath.."b3.png",
+			texture = texturePath.."b2.png",
 			size = 92,
 			tile = 1,
 		},
 		[9] = {
-			texture = texturePath.."b4.png",
+			texture = texturePath.."b3.png",
 			size = 92,
 			tile = 1,
 		},
 		[10] = {
-			texture = texturePath.."b5.png",
+			texture = texturePath.."b4.png",
 			size = 92,
 			tile = 1,
 		},
@@ -550,6 +554,6 @@ function gadget:Update(n)
 	updateCount = updateCount + 1
 	if updateCount > 2 then
 		updateCount = false
-		--MakeMapTexture()
+		MakeMapTexture()
 	end
 end

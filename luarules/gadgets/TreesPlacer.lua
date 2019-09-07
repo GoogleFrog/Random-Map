@@ -10,6 +10,9 @@ function gadget:GetInfo()
    }
 end
 
+local MAX_NORMAL = 0.96
+local VEH_NORMAL = 0.892
+local BOT_NORMAL = 0.585
 
 if (gadgetHandler:IsSyncedCode()) then  --Sync
 	local minTreeHeight = 10
@@ -21,7 +24,18 @@ if (gadgetHandler:IsSyncedCode()) then  --Sync
 		local mod = -(math.min(1,dy+1))
 		return (1-mod) * invdensity
 	end
+	
+	local function GetTreeSlopeChance(x, z)
+		local normal      = select(2, Spring.GetGroundNormal(x, z))
+		local height      = Spring.GetGroundHeight(x, z)
+		if (normal > MAX_NORMAL) then
+			return 1
+		elseif (normal < VEH_NORMAL) then
+			return 0
+		end
 		
+		return (normal - VEH_NORMAL)/( MAX_NORMAL - VEH_NORMAL)
+	end
 	
 	
 	function gadget:Initialize()
@@ -67,20 +81,15 @@ if (gadgetHandler:IsSyncedCode()) then  --Sync
 		for x = 0,Game.mapSizeX, minDistance do
 			for z = 0,Game.mapSizeZ, minDistance do
 				local y = Spring.GetGroundHeight(x,z)
-				if y > minTreeHeight and y < maxTreeHeight and math.random(1,getHeightDensity(y,invDensity)) == 1 and Spring.TestMoveOrder(UnitDefNames.vehassault.id, x, y, z) == true then
+				if y > minTreeHeight and y < maxTreeHeight and math.random(1,getHeightDensity(y,invDensity)) == 1 and math.random() < GetTreeSlopeChance(x, z) then
 					ctTrees = ctTrees + 1
 					trees[ctTrees] = {x = x, y = y, z = z}
 				end
 			end
-		end				
+		end
 		
 		for tree, pos in pairs(trees) do
 			Spring.CreateFeature(replacementTrees[math.random(1,count)],(pos.x),(pos.y),(pos.z), math.random(0,360)*math.pi*2/360)
 		end
 	end
 end
-
-
-
-
-
