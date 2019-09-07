@@ -550,6 +550,6 @@ function gadget:Update(n)
 	updateCount = updateCount + 1
 	if updateCount > 2 then
 		updateCount = false
-		MakeMapTexture()
+		--MakeMapTexture()
 	end
 end
