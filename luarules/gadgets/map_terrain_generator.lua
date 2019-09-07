@@ -1145,20 +1145,20 @@ local function ApplyLineDistanceFunc(tierFlood, cellTier, otherTier, heightMod, 
 			local projDist = vx*pdx + vz*pdz
 			local tangDist = vx*tdx + vz*tdz
 			
+			if not otherClockwise then
+				tangDist = -tangDist
+			end
 			local tangDistAbs = abs(tangDist)
-			if projDist > -8 and projDist < lineLength + 8 and tangDistAbs < 40 then
+			if projDist > -8 and projDist < lineLength + 8 and tangDist > -20 and tangDist < 40 then
 				if projDist < 0 then
 					tangDistAbs = tangDistAbs - projDist*3
 				elseif projDist > lineLength then
 					tangDistAbs = tangDistAbs + (projDist - lineLength)*3
 				end
 				
-				tierFlood.AddHeight(x, z, ((otherClockwise == (tangDist > 0)) and cellTier) or otherTier, tangDistAbs)
+				tierFlood.AddHeight(x, z, ((tangDist > 0) and cellTier) or otherTier, tangDistAbs)
 			end
 			
-			if not otherClockwise then
-				tangDist = -tangDist
-			end
 			
 			local towardsCellTier, towardsOtherTier = HeightFunc(tangDist, projDist, lineLength, startWidth, endWidth, segStartWidth, segEndWidth, startDist, endDist, overshootStart)
 			local posIndex = GetPosIndex(x, z)
@@ -1496,16 +1496,49 @@ local function GenerateCellTiers(cells, waveFunc)
 	return tierConst, tierHeight, tierMin, tierMax
 end
 
-local function SetStartCells(cells, edgesSorted)
+local function EstimateHeightDiff(mid, checkRadius, heights)
+	local sampleCount = 25
+	local heightSum = 0
+	local maxHeight, minHeight
+	for i = 1, sampleCount do
+		local pos = GetRandomPointInCircle(mid, checkRadius, 50)
+		local x, z = floor((pos[1] + 4)/8)*8, floor((pos[2] + 4)/8)*8
+		
+		local posHeight = heights[x][z]
+		heightSum = heightSum + posHeight
+		if (not minHeight) or (posHeight < minHeight) then
+			minHeight = posHeight
+		end
+		if (not maxHeight) or (posHeight > maxHeight) then
+			maxHeight = posHeight
+		end
+	end
+	
+	local heightAverage = heightSum/sampleCount
+	--local cheapDeviation = min(maxHeight - heightAverage, heightAverage - minHeight)/(maxHeight - minHeight)
+	return (maxHeight - minHeight)
+end
+
+local function SetStartCells(cells, edgesSorted, heights)
+	local wantedFlatness = 80
+	
 	local startCell
+	local minHeightDiff
 	for i = 1, #edgesSorted do
 		local thisEdge = edgesSorted[i]
 		if #thisEdge.faces == 1 then
 			local thisCell = thisEdge.faces[1]
-			if thisCell.mirror and thisCell.height > 4 then
-				startCell = thisEdge.faces[1]
-				if random() < 0.4 then
-					break
+			if thisCell.mirror and thisCell.tier >= -1 and (not thisCell.adjacentToCorner) then
+				local heightDiff = EstimateHeightDiff(thisCell.averageMid, 700, heights)
+				if (not minHeightDiff) or (heightDiff < minHeightDiff) then
+					startCell = thisEdge.faces[1]
+					minHeightDiff = heightDiff
+				end
+				if heightDiff < wantedFlatness then
+					startCell = thisEdge.faces[1]
+					if random() < 0.3 then
+						break
+					end
 				end
 			end
 		end
@@ -1705,16 +1738,20 @@ local function GetMetalValues(cells, edges, startCells)
 			
 			if (thisCell.landBotDist == 0) or (mirror and (mirror.landBotDist == 0)) then
 				thisCell.metalSpots = 3
-			elseif minBotDist then
+			else
 				thisCell.mexAlloc = thisCell.startPathFactor*1.5 + thisCell.startDistFactor*1.2 + 0.2
 				if minBotDist == 1 then
-					--thisCell.mexAlloc = thisCell.mexAlloc + 0.1
+					thisCell.mexAlloc = max(0, thisCell.mexAlloc - 0.4)
 				end
 				if thisCell.adjacentToBorder then
 					thisCell.mexAlloc = thisCell.mexAlloc + 0.15
 				end
 				if thisCell.adjacentToCorner then
 					thisCell.mexAlloc = thisCell.mexAlloc + 0.35
+				end
+				
+				if not minBotDist then
+					thisCell.mexAlloc = thisCell.mexAlloc*0.18
 				end
 				totalMexAlloc = totalMexAlloc + thisCell.mexAlloc
 			end
@@ -1742,7 +1779,6 @@ local function GetMetalValues(cells, edges, startCells)
 		end
 		
 		if (mexCell.startPathFactor == 0) and ((not mexCell.mirror) or Dist(mexCell.averageMid, mexCell.mirror.averageMid) > 1200) then
-			Spring.Echo("thisCellmexAllocthisCellmexAlloc", mexCell.mexAlloc)
 			if mexCell.mexAlloc and (random() < mexCell.mexAlloc/2) then
 				mexCell.megaMex = true
 				mexAssignment = 2
@@ -1804,6 +1840,7 @@ function gadget:Initialize()
 	-- 29669
 	-- 9498
 	-- 93286 flat map
+	-- 34349 blocked map, broken floodfill
 	math.randomseed(randomSeed)
 
 	Spring.SetGameRulesParam("typemap", "temperate")
@@ -1825,17 +1862,6 @@ function gadget:Initialize()
 	local tierConst, tierHeight, tierMin, tierMax = GenerateCellTiers(cells, waveFunc)
 	GenerateEdgePassability(edgesSorted)
 	TimerEcho("Tier generation complete")
-	
-	startCells = SetStartCells(cells, edgesSorted)
-	SetStatboxData(startCells)
-	
-	local metalValues = GetMetalValues(cells, edges, startCells)
-	TimerEcho("Metal generation complete")
-	
-	--for i = 1, #startCells do
-	--	CellEcho(startCells[i])
-	--	CellEcho(startCells[i].mirror)
-	--end
 	
 	local tierFlood, heightMod = ProcessEdges(cells, edges)
 	TimerEcho("Edge terrain complete")
@@ -1879,6 +1905,12 @@ function gadget:Initialize()
 	
 	local smoothHeights = ApplyHeightSmooth(heights, smoothFilter)
 	TimerEcho("Smoothing complete")
+	
+	startCells = SetStartCells(cells, edgesSorted, heights)
+	SetStatboxData(startCells)
+	
+	local metalValues = GetMetalValues(cells, edges, startCells)
+	TimerEcho("Metal generation complete")
 	
 	TerraformByHeights(smoothHeights)
 	GG.mapgen_origHeight = smoothHeights
