@@ -307,9 +307,9 @@ local function GetSplatTex(height, vehiclePass, botPass, inWater)
 	if vehiclePass then
 		return 1
 	elseif botPass then
-		return ((random() < 0.2) and 2) or 1
+		return ((random() < 0.26) and 2) or 1
 	end
-	return ((random() < 0.85) and 2) or 1
+	return ((random() < 0.9) and 2) or 1
 end
 
 local function GetMainTex(height, vehiclePass, botPass, inWater)
@@ -358,7 +358,7 @@ local function GetTopTex(normal, height, vehiclePass, botPass, inWater)
 	local textureProp = (1 - (normal - minNorm)/(maxNorm - minNorm))
 	local topAlpha
 	if vehiclePass then
-		topAlpha = 0.92*textureProp
+		topAlpha = 0.88*textureProp
 	else
 		topAlpha = 0.15*textureProp
 	end
