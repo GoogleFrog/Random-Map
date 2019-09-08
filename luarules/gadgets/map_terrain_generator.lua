@@ -1785,7 +1785,7 @@ local function GetMetalValues(cells, edges, startCells)
 		end
 	end
 	
-	local mexSpots = random(7, 12)
+	local mexSpots = 6 + floor(random()*6)
 	while mexSpots > 0 do
 		local mexCell = cells[random(1, #cells)]
 		local randAllocateSum = random()*totalMexAlloc

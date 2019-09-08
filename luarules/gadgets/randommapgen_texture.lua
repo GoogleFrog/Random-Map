@@ -69,12 +69,33 @@ local GL_RGBA32F = 0x8814
 local floor  = math.floor
 local random = math.random
 
+
 local SPLAT_DETAIL_TEX_POOL = {
 	{0.7,0.0,0.0,1.0}, --R
 	{0.0,0.9,0.0,1.0}, --G
 	{0.0,0.0,1.0,1.0}, --B
 	{0.0,0.0,0.0,1.0}, --A
 }
+
+--------------------------------------------------------------------------------
+--------------------------------------------------------------------------------
+
+local coroutine = coroutine
+local Sleep     = coroutine.yield
+local activeCoroutine
+
+local function StartScript(fn)
+	local co = coroutine.create(fn)
+	activeCoroutine = co
+end
+
+local function UpdateCoroutines()
+	if activeCoroutine and coroutine.status(activeCoroutine) ~= "dead" then
+		assert(coroutine.resume(activeCoroutine))
+	end
+end
+
+local RATE_LIMIT = 10000
 
 --------------------------------------------------------------------------------
 --------------------------------------------------------------------------------
@@ -105,6 +126,19 @@ end
 
 --------------------------------------------------------------------------------
 --------------------------------------------------------------------------------
+
+local function RateCheck(loopCount, texture, color)
+	if loopCount > RATE_LIMIT then
+		loopCount = 0
+		Sleep()
+		if texture then
+			glTexture(texture)
+		elseif color then
+			glColor(color)
+		end
+	end
+	return loopCount + 1
+end
 
 local function SetMapTexture(texturePool, mapTexX, mapTexZ, topTexX, topTexZ, topTexAlpha, splatTexX, splatTexZ, mapHeight)
 	local DrawStart = Spring.GetTimer()
@@ -140,158 +174,172 @@ local function SetMapTexture(texturePool, mapTexX, mapTexZ, topTexX, topTexZ, to
 	)
 	Spring.Echo("Generated blank splattex")
 	
-	glColor(1, 1, 1, 1)
-	local ago = Spring.GetTimer()
-	for i = 1, #texturePool do
-		local texX = mapTexX[i]
-		local texZ = mapTexZ[i]
-		if texX then
-			glTexture(texturePool[i].texture)
-			for j = 1, #texX do
-				local heightMult = 0.12*(mapHeight[texX[j]][texZ[j]]/350) + 0.88
-				glColor(1, 1, 1, heightMult)
-				glRenderToTexture(fulltex, DrawTexBlock, texX[j], texZ[j])
-			end
-		end
-	end
-	glTexture(false)
-	
-	local cur = Spring.GetTimer()
-	Spring.Echo("FullTex rendered in: "..(Spring.DiffTimers(cur, ago, true)))
-	
-	local ago = Spring.GetTimer()
-	gl.Blending(GL.SRC_ALPHA, GL.ONE_MINUS_SRC_ALPHA)
-	for i = 1, #texturePool do
-		local texX = topTexX[i]
-		local texZ = topTexZ[i]
-		local texAlpha = topTexAlpha[i]
-		if texX then
-			glTexture(texturePool[i].texture)
-			for j = 1, #texX do
-				if texAlpha[j] > 0.01 then
-					glColor(1, 1, 1, texAlpha[j])
-					glRenderToTexture(fulltex, DrawTexBlock, texX[j], texZ[j])
-				end
-			end
-		end
-	end
-	glColor(1, 1, 1, 1)
-	glTexture(false)
-	
-	local cur = Spring.GetTimer()
-	Spring.Echo("TopTex rendered in: "..(Spring.DiffTimers(cur, ago, true)))
-	
-	if USE_SHADING_TEXTURE then
-		local ago2 = Spring.GetTimer()
-		for i = 1, #SPLAT_DETAIL_TEX_POOL do
-			local texX = splatTexX[i]
-			local texZ = splatTexZ[i]
+	local function DrawLoop()
+		local loopCount = 0
+		glColor(1, 1, 1, 1)
+		local ago = Spring.GetTimer()
+		for i = 1, #texturePool do
+			local texX = mapTexX[i]
+			local texZ = mapTexZ[i]
 			if texX then
-				glColor(SPLAT_DETAIL_TEX_POOL[i])
+				glTexture(texturePool[i].texture)
 				for j = 1, #texX do
-					glRenderToTexture(splattex, DrawColorBlock, texX[j], texZ[j])
-					Spring.ClearWatchDogTimer()
+					local heightMult = 0.12*(mapHeight[texX[j]][texZ[j]]/350) + 0.88
+					glColor(1, 1, 1, heightMult)
+					glRenderToTexture(fulltex, DrawTexBlock, texX[j], texZ[j])
+					loopCount = RateCheck(loopCount, texturePool[i].texture)
 				end
+				Sleep()
+			end
+		end
+		glTexture(false)
+		
+		local cur = Spring.GetTimer()
+		Spring.Echo("FullTex rendered in: "..(Spring.DiffTimers(cur, ago, true)))
+		
+		local ago = Spring.GetTimer()
+		gl.Blending(GL.SRC_ALPHA, GL.ONE_MINUS_SRC_ALPHA)
+		for i = 1, #texturePool do
+			local texX = topTexX[i]
+			local texZ = topTexZ[i]
+			local texAlpha = topTexAlpha[i]
+			if texX then
+				glTexture(texturePool[i].texture)
+				for j = 1, #texX do
+					if texAlpha[j] > 0.01 then
+						glColor(1, 1, 1, texAlpha[j])
+						glRenderToTexture(fulltex, DrawTexBlock, texX[j], texZ[j])
+						loopCount = RateCheck(loopCount, texturePool[i].texture)
+					end
+				end
+				Sleep()
+			end
+		end
+		glColor(1, 1, 1, 1)
+		glTexture(false)
+		
+		local cur = Spring.GetTimer()
+		Spring.Echo("TopTex rendered in: "..(Spring.DiffTimers(cur, ago, true)))
+		
+		local texOut = fulltex
+		Spring.Echo("Starting to render SquareTextures")
+		
+		GG.mapgen_squareTexture  = {}
+		GG.mapgen_currentTexture = {}
+		local ago3 = Spring.GetTimer()
+		for x = 0, MAP_X - 1, SQUARE_SIZE do -- Create sqr textures for each sqr
+			local sx = floor(x/SQUARE_SIZE)
+			GG.mapgen_squareTexture[sx]  = {}
+			GG.mapgen_currentTexture[sx] = {}
+			for z = 0, MAP_Z - 1, SQUARE_SIZE do
+				local sz = floor(z/SQUARE_SIZE)
+				local squareTex = glCreateTexture(SQUARE_SIZE/BLOCK_SIZE, SQUARE_SIZE/BLOCK_SIZE,
+					{
+						border = false,
+						min_filter = GL.LINEAR,
+						mag_filter = GL.LINEAR,
+						wrap_s = GL.CLAMP_TO_EDGE,
+						wrap_t = GL.CLAMP_TO_EDGE,
+						fbo = true,
+					}
+				)
+				local origTex = glCreateTexture(SQUARE_SIZE/BLOCK_SIZE, SQUARE_SIZE/BLOCK_SIZE,
+					{
+						border = false,
+						min_filter = GL.LINEAR,
+						mag_filter = GL.LINEAR,
+						wrap_s = GL.CLAMP_TO_EDGE,
+						wrap_t = GL.CLAMP_TO_EDGE,
+						fbo = true,
+					}
+				)
+				local curTex = glCreateTexture(SQUARE_SIZE/BLOCK_SIZE, SQUARE_SIZE/BLOCK_SIZE,
+					{
+						border = false,
+						min_filter = GL.LINEAR,
+						mag_filter = GL.LINEAR,
+						wrap_s = GL.CLAMP_TO_EDGE,
+						wrap_t = GL.CLAMP_TO_EDGE,
+						fbo = true,
+					}
+				)
+				glTexture(texOut)
+				glRenderToTexture(squareTex, DrawTextureOnSquare, 0, 0, SQUARE_SIZE, x/MAP_X, z/MAP_Z, SQUARE_SIZE/MAP_X, SQUARE_SIZE/MAP_Z)
+				glRenderToTexture(origTex  , DrawTextureOnSquare, 0, 0, SQUARE_SIZE, x/MAP_X, z/MAP_Z, SQUARE_SIZE/MAP_X, SQUARE_SIZE/MAP_Z)
+				glRenderToTexture(curTex   , DrawTextureOnSquare, 0, 0, SQUARE_SIZE, x/MAP_X, z/MAP_Z, SQUARE_SIZE/MAP_X, SQUARE_SIZE/MAP_Z)
+				
+				GG.mapgen_squareTexture[sx][sz]  = origTex
+				GG.mapgen_currentTexture[sx][sz] = curTex
+				GG.mapgen_fulltex = fulltex
+				
+				glTexture(false)
+				--gl.GenerateMipmap(squareTex)
+				Spring.SetMapSquareTexture(sx, sz, squareTex)
 			end
 		end
 		cur = Spring.GetTimer()
-		Spring.Echo("Splattex rendered in: "..(Spring.DiffTimers(cur, ago2, true)))
-	end
-	glColor(1, 1, 1, 1)
-	
-	local texOut = fulltex
-	Spring.Echo("Starting to render SquareTextures")
-	
-	GG.mapgen_squareTexture  = {}
-	GG.mapgen_currentTexture = {}
-	local ago3 = Spring.GetTimer()
-	for x = 0, MAP_X - 1, SQUARE_SIZE do -- Create sqr textures for each sqr
-		local sx = floor(x/SQUARE_SIZE)
-		GG.mapgen_squareTexture[sx]  = {}
-		GG.mapgen_currentTexture[sx] = {}
-		for z = 0, MAP_Z - 1, SQUARE_SIZE do
-			local sz = floor(z/SQUARE_SIZE)
-			local squareTex = glCreateTexture(SQUARE_SIZE/BLOCK_SIZE, SQUARE_SIZE/BLOCK_SIZE,
-				{
-					border = false,
-					min_filter = GL.LINEAR,
-					mag_filter = GL.LINEAR,
-					wrap_s = GL.CLAMP_TO_EDGE,
-					wrap_t = GL.CLAMP_TO_EDGE,
-					fbo = true,
-				}
-			)
-			local origTex = glCreateTexture(SQUARE_SIZE/BLOCK_SIZE, SQUARE_SIZE/BLOCK_SIZE,
-				{
-					border = false,
-					min_filter = GL.LINEAR,
-					mag_filter = GL.LINEAR,
-					wrap_s = GL.CLAMP_TO_EDGE,
-					wrap_t = GL.CLAMP_TO_EDGE,
-					fbo = true,
-				}
-			)
-			local curTex = glCreateTexture(SQUARE_SIZE/BLOCK_SIZE, SQUARE_SIZE/BLOCK_SIZE,
-				{
-					border = false,
-					min_filter = GL.LINEAR,
-					mag_filter = GL.LINEAR,
-					wrap_s = GL.CLAMP_TO_EDGE,
-					wrap_t = GL.CLAMP_TO_EDGE,
-					fbo = true,
-				}
-			)
-			glTexture(texOut)
-			glRenderToTexture(squareTex, DrawTextureOnSquare, 0, 0, SQUARE_SIZE, x/MAP_X, z/MAP_Z, SQUARE_SIZE/MAP_X, SQUARE_SIZE/MAP_Z)
-			glRenderToTexture(origTex  , DrawTextureOnSquare, 0, 0, SQUARE_SIZE, x/MAP_X, z/MAP_Z, SQUARE_SIZE/MAP_X, SQUARE_SIZE/MAP_Z)
-			glRenderToTexture(curTex   , DrawTextureOnSquare, 0, 0, SQUARE_SIZE, x/MAP_X, z/MAP_Z, SQUARE_SIZE/MAP_X, SQUARE_SIZE/MAP_Z)
-			
-			GG.mapgen_squareTexture[sx][sz]  = origTex
-			GG.mapgen_currentTexture[sx][sz] = curTex
-			GG.mapgen_fulltex = fulltex
-			
-			glTexture(false)
-			--gl.GenerateMipmap(squareTex)
-			Spring.SetMapSquareTexture(sx, sz, squareTex)
-		end
-	end
-	cur = Spring.GetTimer()
-	Spring.Echo("All squaretex rendered and applied in: "..(Spring.DiffTimers(cur, ago3, true)))
-	
-	if USE_SHADING_TEXTURE then
-		Spring.SetMapShadingTexture("$grass", texOut)
-		usedgrass = texOut
-		Spring.SetMapShadingTexture("$minimap", texOut)
-		usedminimap = texOut
-		Spring.Echo("Applied grass and minimap textures")
-	end
-	gl.DeleteTextureFBO(fulltex)
-	
-	if texOut and texOut ~= usedgrass and texOut ~= usedminimap then
-		glDeleteTexture(texOut)
-		texOut = nil
-	end
-	
-	if USE_SHADING_TEXTURE then
-		texOut = splattex
-		Spring.SetMapShadingTexture("$ssmf_splat_distr", texOut)
-		usedsplat = texOut
-		Spring.Echo("Applied splat texture")
-		gl.DeleteTextureFBO(splattex)
-		if texOut and texOut ~= usedsplat then
-			glDeleteTexture(texOut)
-			if splattex and texOut == splattex then
-				splattex = nile
+		Spring.Echo("All squaretex rendered and applied in: "..(Spring.DiffTimers(cur, ago3, true)))
+		
+		if USE_SHADING_TEXTURE then
+			local ago2 = Spring.GetTimer()
+			for i = 1, #SPLAT_DETAIL_TEX_POOL do
+				local texX = splatTexX[i]
+				local texZ = splatTexZ[i]
+				if texX then
+					glColor(SPLAT_DETAIL_TEX_POOL[i])
+					for j = 1, #texX do
+						glRenderToTexture(splattex, DrawColorBlock, texX[j], texZ[j])
+						Spring.ClearWatchDogTimer()
+						loopCount = RateCheck(loopCount, false, SPLAT_DETAIL_TEX_POOL[i])
+					end
+				end
+				Sleep()
 			end
+			cur = Spring.GetTimer()
+			Spring.Echo("Splattex rendered in: "..(Spring.DiffTimers(cur, ago2, true)))
+			glColor(1, 1, 1, 1)
+		end
+
+		if USE_SHADING_TEXTURE then
+			Spring.SetMapShadingTexture("$grass", texOut)
+			usedgrass = texOut
+			Spring.SetMapShadingTexture("$minimap", texOut)
+			usedminimap = texOut
+			Spring.Echo("Applied grass and minimap textures")
+		end
+		gl.DeleteTextureFBO(fulltex)
+		
+		if texOut and texOut ~= usedgrass and texOut ~= usedminimap then
+			glDeleteTexture(texOut)
 			texOut = nil
 		end
-		if splattex and splattex ~= usedsplat then
-			glDeleteTexture(splattex)
-			splattex = nil
+		
+		if USE_SHADING_TEXTURE then
+			texOut = splattex
+			Spring.SetMapShadingTexture("$ssmf_splat_distr", texOut)
+			usedsplat = texOut
+			Spring.Echo("Applied splat texture")
+			gl.DeleteTextureFBO(splattex)
+			if texOut and texOut ~= usedsplat then
+				glDeleteTexture(texOut)
+				if splattex and texOut == splattex then
+					splattex = nile
+				end
+				texOut = nil
+			end
+			if splattex and splattex ~= usedsplat then
+				glDeleteTexture(splattex)
+				splattex = nil
+			end
 		end
+		local DrawEnd = Spring.GetTimer()
+		Spring.Echo("map fully processed in: "..(Spring.DiffTimers(DrawEnd, DrawStart, true)))
+		
+		mapfullyprocessed = nil
 	end
-	local DrawEnd = Spring.GetTimer()
-	Spring.Echo("map fully processed in: "..(Spring.DiffTimers(DrawEnd, DrawStart, true)))
+	
+	
+	StartScript(DrawLoop)
 end
 
 --------------------------------------------------------------------------------
@@ -548,8 +596,12 @@ function gadget:DrawGenesis()
 	if mapfullyprocessed == true then
 		return
 	end
-	mapfullyprocessed = true
-	SetMapTexture(texturePool, mapTexX, mapTexZ, topTexX, topTexZ, topTexAlpha, splatTexX, splatTexZ, mapHeight)
+	
+	if activeCoroutine then
+		UpdateCoroutines()
+	else
+		SetMapTexture(texturePool, mapTexX, mapTexZ, topTexX, topTexZ, topTexAlpha, splatTexX, splatTexZ, mapHeight)
+	end
 end
 
 local function MakeMapTexture()
