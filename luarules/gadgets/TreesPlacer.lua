@@ -10,7 +10,7 @@ function gadget:GetInfo()
    }
 end
 
-local MAX_NORMAL = 0.96
+local MAX_NORMAL = 0.965
 local VEH_NORMAL = 0.892
 local BOT_NORMAL = 0.585
 
@@ -33,8 +33,8 @@ if (gadgetHandler:IsSyncedCode()) then  --Sync
 		elseif (normal < VEH_NORMAL) then
 			return 0
 		end
-		
-		return (normal - VEH_NORMAL)/( MAX_NORMAL - VEH_NORMAL)
+		--local slopeProp = 0.1*(normal - VEH_NORMAL)/( MAX_NORMAL - VEH_NORMAL)
+		return 0
 	end
 	
 	

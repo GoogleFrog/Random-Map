@@ -202,11 +202,13 @@ local function SetMapTexture(texturePool, mapTexX, mapTexZ, topTexX, topTexZ, to
 	local texOut = fulltex
 	Spring.Echo("Starting to render SquareTextures")
 	
-	GG.mapgen_squareTexture = {}
+	GG.mapgen_squareTexture  = {}
+	GG.mapgen_currentTexture = {}
 	local ago3 = Spring.GetTimer()
 	for x = 0, MAP_X - 1, SQUARE_SIZE do -- Create sqr textures for each sqr
 		local sx = floor(x/SQUARE_SIZE)
-		GG.mapgen_squareTexture[sx] = {}
+		GG.mapgen_squareTexture[sx]  = {}
+		GG.mapgen_currentTexture[sx] = {}
 		for z = 0, MAP_Z - 1, SQUARE_SIZE do
 			local sz = floor(z/SQUARE_SIZE)
 			local squareTex = glCreateTexture(SQUARE_SIZE/BLOCK_SIZE, SQUARE_SIZE/BLOCK_SIZE,
@@ -219,13 +221,38 @@ local function SetMapTexture(texturePool, mapTexX, mapTexZ, topTexX, topTexZ, to
 					fbo = true,
 				}
 			)
+			local origTex = glCreateTexture(SQUARE_SIZE/BLOCK_SIZE, SQUARE_SIZE/BLOCK_SIZE,
+				{
+					border = false,
+					min_filter = GL.LINEAR,
+					mag_filter = GL.LINEAR,
+					wrap_s = GL.CLAMP_TO_EDGE,
+					wrap_t = GL.CLAMP_TO_EDGE,
+					fbo = true,
+				}
+			)
+			local curTex = glCreateTexture(SQUARE_SIZE/BLOCK_SIZE, SQUARE_SIZE/BLOCK_SIZE,
+				{
+					border = false,
+					min_filter = GL.LINEAR,
+					mag_filter = GL.LINEAR,
+					wrap_s = GL.CLAMP_TO_EDGE,
+					wrap_t = GL.CLAMP_TO_EDGE,
+					fbo = true,
+				}
+			)
 			glTexture(texOut)
 			glRenderToTexture(squareTex, DrawTextureOnSquare, 0, 0, SQUARE_SIZE, x/MAP_X, z/MAP_Z, SQUARE_SIZE/MAP_X, SQUARE_SIZE/MAP_Z)
-			glTexture(false)
-			gl.GenerateMipmap(squareTex)
-			Spring.SetMapSquareTexture(sx, sz, squareTex)
-			GG.mapgen_squareTexture[sx][sz] = squareTex
+			glRenderToTexture(origTex  , DrawTextureOnSquare, 0, 0, SQUARE_SIZE, x/MAP_X, z/MAP_Z, SQUARE_SIZE/MAP_X, SQUARE_SIZE/MAP_Z)
+			glRenderToTexture(curTex   , DrawTextureOnSquare, 0, 0, SQUARE_SIZE, x/MAP_X, z/MAP_Z, SQUARE_SIZE/MAP_X, SQUARE_SIZE/MAP_Z)
+			
+			GG.mapgen_squareTexture[sx][sz]  = origTex
+			GG.mapgen_currentTexture[sx][sz] = curTex
 			GG.mapgen_fulltex = fulltex
+			
+			glTexture(false)
+			--gl.GenerateMipmap(squareTex)
+			Spring.SetMapSquareTexture(sx, sz, squareTex)
 		end
 	end
 	cur = Spring.GetTimer()

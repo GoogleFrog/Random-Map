@@ -471,7 +471,7 @@ local MAP_BORDER = {
 	{{MAP_X, -10*MAP_Z}, {MAP_X, 10*MAP_Z}},
 }
 
-local POINT_COUNT = 15
+local POINT_COUNT = 9
 local CIRCLE_POINTS = {}
 for i = pi, pi*3/2 + pi/(4*POINT_COUNT), pi/(2*POINT_COUNT) do
 	CIRCLE_POINTS[#CIRCLE_POINTS + 1] = {1 + cos(i), 1 + sin(i)}
@@ -879,7 +879,7 @@ local function GetTerrainWaveFunction()
 		periodMin = 2000,
 		periodMax = 5000,
 		spreadMin = 200,
-		spreadMax = 1200,
+		spreadMax = 900,
 		offsetMin = -0.2,
 		offsetMax = 0.2,
 		growthMin = 0.15,
@@ -889,7 +889,7 @@ local function GetTerrainWaveFunction()
 		waveRotationsMin = 1,
 		waveRotationsMax = 8,
 		spreadScaleMin = 0.2,
-		spreadScaleMax = 0.4,
+		spreadScaleMax = 0.3,
 	}
 	
 	local params = {
@@ -1097,8 +1097,9 @@ local function GetSlopeWidth(startWidth, endWidth, startDist, endDist, dist)
 	return prop*startWidth + (1 - prop)*endWidth
 end
 
-local function MakeEdgeSlope(tangDist, projDist, length, startWidth, endWidth, segStartWidth, segEndWidth, startDist, endDist, overshootStart)
+local function MakeEdgeSlope(tangDist, projDist, length, startWidth, endWidth, segStartWidth, segEndWidth, startDist, endDist, overshootStart, beyondFactor)
 	local maxWidth = max(segStartWidth, segEndWidth)
+	beyondFactor = beyondFactor or 1
 	
 	if tangDist < -maxWidth then
 		return
@@ -1118,6 +1119,7 @@ local function MakeEdgeSlope(tangDist, projDist, length, startWidth, endWidth, s
 	if (projDist < 0 and (not overshootStart)) or (projDist > length) then
 		width = ((projDist < 0) and segStartWidth) or segEndWidth
 		local offDist = ((projDist < 0) and -projDist) or (projDist - length)
+		offDist = (offDist^beyondFactor)
 		dist = sqrt(offDist^2 + dist^2)
 		if dist > width then
 			return
@@ -1132,7 +1134,7 @@ local function MakeEdgeSlope(tangDist, projDist, length, startWidth, endWidth, s
 	end
 end
 
-local function ApplyLineDistanceFunc(tierFlood, cellTier, otherTier, heightMod, lineStart, lineEnd, HeightFunc, startWidth, endWidth, startDist, endDist, otherClockwise, overshootStart)
+local function ApplyLineDistanceFunc(tierFlood, cellTier, otherTier, heightMod, lineStart, lineEnd, HeightFunc, startWidth, endWidth, startDist, endDist, otherClockwise, overshootStart, beyondFactor)
 	local segStartWidth = GetSlopeWidth(startWidth, endWidth, startDist, endDist, 0)
 	local segEndWidth   = GetSlopeWidth(startWidth, endWidth, startDist, endDist, 1)
 	local width = max(segStartWidth, segEndWidth)
@@ -1179,7 +1181,7 @@ local function ApplyLineDistanceFunc(tierFlood, cellTier, otherTier, heightMod, 
 			end
 			
 			
-			local towardsCellTier, towardsOtherTier = HeightFunc(tangDist, projDist, lineLength, startWidth, endWidth, segStartWidth, segEndWidth, startDist, endDist, overshootStart)
+			local towardsCellTier, towardsOtherTier = HeightFunc(tangDist, projDist, lineLength, startWidth, endWidth, segStartWidth, segEndWidth, startDist, endDist, overshootStart, beyondFactor)
 			local posIndex = GetPosIndex(x, z)
 			
 			if towardsCellTier then
@@ -1200,7 +1202,7 @@ local function ApplyLineDistanceFunc(tierFlood, cellTier, otherTier, heightMod, 
 end
 
 local function GetLineHeightModifiers(tierFlood, cellTier, otherTier, heightMod, startPoint, endPoint, width, otherClockwise)
-	ApplyLineDistanceFunc(tierFlood, cellTier, otherTier, heightMod, startPoint, endPoint, MakeEdgeSlope, width, width, 0, 1, otherClockwise, true)
+	ApplyLineDistanceFunc(tierFlood, cellTier, otherTier, heightMod, startPoint, endPoint, MakeEdgeSlope, width, width, 0, 1, otherClockwise, true, 1.07)
 end
 
 local function GetCurveHeightModifiers(tierFlood, cellTier, otherTier, heightMod, curve, startWidth, endWidth, otherClockwise)
@@ -1216,7 +1218,7 @@ local function GetCurveHeightModifiers(tierFlood, cellTier, otherTier, heightMod
 	for i = 1, #curve - 1 do
 		local startDist = curveDist[i]/totalLength
 		local endDist = curveDist[i+1]/totalLength
-		ApplyLineDistanceFunc(tierFlood, cellTier, otherTier, heightMod, curve[i], curve[i + 1], MakeEdgeSlope, startWidth, endWidth, startDist, endDist, otherClockwise, false)
+		ApplyLineDistanceFunc(tierFlood, cellTier, otherTier, heightMod, curve[i], curve[i + 1], MakeEdgeSlope, startWidth, endWidth, startDist, endDist, otherClockwise, false, 1.07)
 	end
 end
 
@@ -1325,8 +1327,8 @@ local function MirrorEdgePassability(edge)
 	mirror.landPass     = edge.landPass
 end
 
-local CLIFF_WIDTH = 25
-local RAMP_WIDTH  = 320
+local CLIFF_WIDTH = 20
+local RAMP_WIDTH  = 360
 
 local function SetEdgePassability(edge)
 	edge.teirDiff = (edge.faces and (#edge.faces == 2) and abs(edge.faces[1].tier - edge.faces[2].tier)) or 0
@@ -1492,7 +1494,7 @@ local function GenerateCellTiers(cells, waveFunc)
 	local waterFator = random()
 	
 	local bucketWidth = 80 + std/2
-	local tierHeight = 110
+	local tierHeight = 125
 	local tierConst = tierHeight + 45
 	local tierMin, tierMax = 1000, -1000
 	
@@ -1534,12 +1536,12 @@ local function EstimateHeightDiff(mid, checkRadius, heights)
 	end
 	
 	local heightAverage = heightSum/sampleCount
-	--local cheapDeviation = min(maxHeight - heightAverage, heightAverage - minHeight)/(maxHeight - minHeight)
-	return (maxHeight - minHeight)
+	local cheapDeviation = min(maxHeight - heightAverage, heightAverage - minHeight)/(0.001 + maxHeight - minHeight)
+	return (maxHeight - minHeight), cheapDeviation
 end
 
 local function SetStartCells(cells, edgesSorted, heights)
-	local wantedFlatness = 80
+	local wantedFlatness = 64
 	
 	local startCell
 	local minHeightDiff
@@ -1547,11 +1549,11 @@ local function SetStartCells(cells, edgesSorted, heights)
 		local thisEdge = edgesSorted[i]
 		if #thisEdge.faces == 1 then
 			local thisCell = thisEdge.faces[1]
-			if thisCell.mirror and thisCell.tier >= -1 and (not thisCell.adjacentToCorner) then
-				local heightDiff = EstimateHeightDiff(thisCell.averageMid, 700, heights)
-				if (not minHeightDiff) or (heightDiff < minHeightDiff) then
+			if thisCell.firstMirror and (thisCell.tier >= -1) and (not thisCell.adjacentToCorner) then
+				local heightDiff, cheapDeviation = EstimateHeightDiff(thisCell.averageMid, 750, heights)
+				if (not minHeightDiff) or (heightDiff*cheapDeviation < minHeightDiff) then
 					startCell = thisEdge.faces[1]
-					minHeightDiff = heightDiff
+					minHeightDiff = heightDiff*cheapDeviation
 				end
 				if heightDiff < wantedFlatness then
 					startCell = thisEdge.faces[1]
@@ -1697,6 +1699,7 @@ local function GetMetalValues(cells, edges, startCells)
 	GetStraightDistances(cells, startCell, "straightDist")
 	local minPathDiff, maxPathDiff
 	local minDistSum, maxDistSum
+	local maxCellDist
 	for i = 1, #cells do
 		local thisCell = cells[i]
 		local mirror = thisCell.mirror
@@ -1710,14 +1713,17 @@ local function GetMetalValues(cells, edges, startCells)
 					maxPathDiff = pathDiff
 				end
 			end
-			if thisCell.straightDist and mirror.straightDist then
-				local distSum = thisCell.straightDist + mirror.straightDist
-				if (not minDistSum) or (distSum < minDistSum) then
-					minDistSum = distSum
-				end
-				if (not maxDistSum) or (distSum > maxDistSum) then
-					maxDistSum = distSum
-				end
+			
+			local smallerStartDist = max(thisCell.straightDist, mirror.straightDist)
+			local distSum = thisCell.straightDist + mirror.straightDist
+			if (not minDistSum) or (distSum < minDistSum) then
+				minDistSum = distSum
+			end
+			if (not maxDistSum) or (distSum > maxDistSum) then
+				maxDistSum = distSum
+			end
+			if (not maxCellDist) or (smallerStartDist > maxCellDist) then
+				maxCellDist = smallerStartDist
 			end
 		end
 	end
@@ -1734,6 +1740,9 @@ local function GetMetalValues(cells, edges, startCells)
 	if not maxDistSum then
 		maxDistSum = 6000
 	end
+	if not maxCellDist then
+		maxCellDist = 6000
+	end
 	
 	local totalMexAlloc = 0
 	for i = 1, #cells do
@@ -1747,18 +1756,16 @@ local function GetMetalValues(cells, edges, startCells)
 				minBotDist = min(thisCell.landBotDist, (mirror and mirror.landBotDist) or mirror.landBotDist)
 			else
 				thisCell.startPathFactor = 0
+				thisCell.unreachable = true
 			end
 			
-			if thisCell.straightDist and mirror and mirror.straightDist then
-				thisCell.startDistFactor = (thisCell.straightDist + mirror.straightDist - minDistSum)/(maxDistSum - minDistSum)
-			else
-				thisCell.startDistFactor = 0
-			end
+			thisCell.startDistFactor = (thisCell.straightDist + mirror.straightDist - minDistSum)/(maxDistSum - minDistSum)
+			thisCell.closeDistFactor = min(thisCell.straightDist, mirror.straightDist)/maxCellDist
 			
 			if (thisCell.landBotDist == 0) or (mirror and (mirror.landBotDist == 0)) then
 				thisCell.metalSpots = 3
 			else
-				thisCell.mexAlloc = thisCell.startPathFactor*1.5 + thisCell.startDistFactor*1.2 + 0.2
+				thisCell.mexAlloc = thisCell.startPathFactor*1.4 + thisCell.startDistFactor*1.2 + thisCell.closeDistFactor*0.7
 				if minBotDist == 1 then
 					thisCell.mexAlloc = max(0, thisCell.mexAlloc - 0.4)
 				end
@@ -1769,8 +1776,8 @@ local function GetMetalValues(cells, edges, startCells)
 					thisCell.mexAlloc = thisCell.mexAlloc + 0.35
 				end
 				
-				if not minBotDist then
-					thisCell.mexAlloc = thisCell.mexAlloc*0.18
+				if thisCell.unreachable then
+					thisCell.mexAlloc = thisCell.mexAlloc*0.15
 				end
 				totalMexAlloc = totalMexAlloc + thisCell.mexAlloc
 			end
@@ -1798,7 +1805,8 @@ local function GetMetalValues(cells, edges, startCells)
 		end
 		
 		if (mexCell.startPathFactor == 0) and ((not mexCell.mirror) or Dist(mexCell.averageMid, mexCell.mirror.averageMid) > 1200) then
-			if mexCell.mexAlloc and (random() < mexCell.mexAlloc/2) then
+			local megaChance = max(0.2, min(0.8, mexCell.mexAlloc*0.8))
+			if mexCell.mexAlloc and (random() < megaChance) and (not mexCell.unreachable) then
 				mexCell.megaMex = true
 				mexAssignment = 2
 			end
@@ -1948,7 +1956,7 @@ function gadget:GameFrame()
 	
 	for i = 1, #toDrawEdges do
 		local edge = toDrawEdges[i]
-		LineDraw(edge)
+		--LineDraw(edge)
 		--LineEcho(edge, MakeBoolString({edge.vehPass, edge.botPass, edge.landPass}) .. ", width: " .. edge.terrainWidth .. ", tier: " .. edge.teirDiff)
 	end
 	
