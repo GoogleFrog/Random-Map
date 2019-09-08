@@ -1766,9 +1766,10 @@ local function GetMetalValues(cells, edges, startCells)
 			if (thisCell.landBotDist == 0) or (mirror and (mirror.landBotDist == 0)) then
 				thisCell.metalSpots = 3
 			else
-				thisCell.mexAlloc = thisCell.startPathFactor*1.4 + thisCell.startDistFactor*1.2 + thisCell.closeDistFactor*0.7
+				thisCell.mexAlloc = thisCell.startPathFactor*1.4 + thisCell.startDistFactor*1.2 + thisCell.closeDistFactor*0.7 - 0.15
 				if minBotDist == 1 then
-					thisCell.mexAlloc = max(0, thisCell.mexAlloc - 0.4)
+					thisCell.mexAlloc = thisCell.mexAlloc - 0.4
+					thisCell.adjacentToStart = true
 				end
 				if thisCell.adjacentToBorder then
 					thisCell.mexAlloc = thisCell.mexAlloc + 0.15
@@ -1776,16 +1777,17 @@ local function GetMetalValues(cells, edges, startCells)
 				if thisCell.adjacentToCorner then
 					thisCell.mexAlloc = thisCell.mexAlloc + 0.35
 				end
-				
 				if thisCell.unreachable then
 					thisCell.mexAlloc = thisCell.mexAlloc*0.15
 				end
+				
+				thisCell.mexAlloc = max(0, thisCell.mexAlloc)
 				totalMexAlloc = totalMexAlloc + thisCell.mexAlloc
 			end
 		end
 	end
 	
-	local mexSpots = 6 + floor(random()*6)
+	local mexSpots = 5 + floor(random()*6)
 	while mexSpots > 0 do
 		local mexCell = cells[random(1, #cells)]
 		local randAllocateSum = random()*totalMexAlloc
@@ -1801,7 +1803,7 @@ local function GetMetalValues(cells, edges, startCells)
 		
 		local allocChange = mexCell.mexAlloc or 0
 		local mexAssignment = (((random() < 0.35) and 2) or 1)
-		if mexCell.adjacentToMirror then
+		if mexCell.adjacentToMirror or mexCell.adjacentToStart then
 			mexAssignment = 1
 		end
 		
@@ -1862,7 +1864,6 @@ local function GetTerrainStructure()
 	TimerEcho("Wave generation complete")
 	
 	local cells, edges = GetVoronoi(18, 400, 500)
-	toDrawEdges = edges
 	TimerEcho("Voronoi generation complete")
 	
 	local edgesSorted = Spring.Utilities.CopyTable(edges, false)
@@ -1933,13 +1934,8 @@ local waitCount = 0
 
 function gadget:Initialize()
 	local randomSeed = GetSeed()
-	-- 84989
-	-- 9661
-	-- 74370
-	-- 29669
-	-- 9498
-	-- 93286 flat map
-	-- 34349 blocked map, broken floodfill
+	-- 45998
+	-- 44245
 	math.randomseed(randomSeed)
 
 	Spring.SetGameRulesParam("typemap", "temperate")
@@ -1955,6 +1951,7 @@ function gadget:Initialize()
 	Spring.Echo("Random Seed", randomSeed)
 	
 	local cells, edges, edgesSorted, heightMod, waveFunc, tiers, tierConst, tierHeight, tierMin, tierMax = GetTerrainStructure()
+	--toDrawEdges = edges
 	
 	local smoothHeights = GenerateTerrainDetails(cells, edges, heightMod, waveFunc, tiers, tierConst, tierHeight, tierMin, tierMax)
 	
