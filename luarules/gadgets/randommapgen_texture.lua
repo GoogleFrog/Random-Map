@@ -69,13 +69,16 @@ local GL_RGBA32F = 0x8814
 local floor  = math.floor
 local random = math.random
 
-
 local SPLAT_DETAIL_TEX_POOL = {
 	{0.7,0.0,0.0,1.0}, --R
 	{0.0,0.9,0.0,1.0}, --G
 	{0.0,0.0,1.0,1.0}, --B
 	{0.0,0.0,0.0,1.0}, --A
 }
+--------------------------------------------------------------------------------
+--------------------------------------------------------------------------------
+
+local initialized, mapfullyprocessed = false, false
 
 --------------------------------------------------------------------------------
 --------------------------------------------------------------------------------
@@ -90,12 +93,16 @@ local function StartScript(fn)
 end
 
 local function UpdateCoroutines()
-	if activeCoroutine and coroutine.status(activeCoroutine) ~= "dead" then
-		assert(coroutine.resume(activeCoroutine))
+	if activeCoroutine then
+		if coroutine.status(activeCoroutine) ~= "dead" then
+			assert(coroutine.resume(activeCoroutine))
+		else
+			activeCoroutine = nil
+		end
 	end
 end
 
-local RATE_LIMIT = 10000
+local RATE_LIMIT = 12000
 
 --------------------------------------------------------------------------------
 --------------------------------------------------------------------------------
@@ -184,7 +191,7 @@ local function SetMapTexture(texturePool, mapTexX, mapTexZ, topTexX, topTexZ, to
 			if texX then
 				glTexture(texturePool[i].texture)
 				for j = 1, #texX do
-					local heightMult = 0.12*(mapHeight[texX[j]][texZ[j]]/350) + 0.88
+					local heightMult = 0.15*(mapHeight[texX[j]][texZ[j]]/400) + 0.85
 					glColor(1, 1, 1, heightMult)
 					glRenderToTexture(fulltex, DrawTexBlock, texX[j], texZ[j])
 					loopCount = RateCheck(loopCount, texturePool[i].texture)
@@ -221,6 +228,26 @@ local function SetMapTexture(texturePool, mapTexX, mapTexZ, topTexX, topTexZ, to
 		local cur = Spring.GetTimer()
 		Spring.Echo("TopTex rendered in: "..(Spring.DiffTimers(cur, ago, true)))
 		
+		if USE_SHADING_TEXTURE then
+			local ago2 = Spring.GetTimer()
+			for i = 1, #SPLAT_DETAIL_TEX_POOL do
+				local texX = splatTexX[i]
+				local texZ = splatTexZ[i]
+				if texX then
+					glColor(SPLAT_DETAIL_TEX_POOL[i])
+					for j = 1, #texX do
+						glRenderToTexture(splattex, DrawColorBlock, texX[j], texZ[j])
+						Spring.ClearWatchDogTimer()
+						loopCount = RateCheck(loopCount, false, SPLAT_DETAIL_TEX_POOL[i])
+					end
+				end
+				Sleep()
+			end
+			cur = Spring.GetTimer()
+			Spring.Echo("Splattex rendered in: "..(Spring.DiffTimers(cur, ago2, true)))
+			glColor(1, 1, 1, 1)
+		end
+
 		local texOut = fulltex
 		Spring.Echo("Starting to render SquareTextures")
 		
@@ -279,26 +306,6 @@ local function SetMapTexture(texturePool, mapTexX, mapTexZ, topTexX, topTexZ, to
 		end
 		cur = Spring.GetTimer()
 		Spring.Echo("All squaretex rendered and applied in: "..(Spring.DiffTimers(cur, ago3, true)))
-		
-		if USE_SHADING_TEXTURE then
-			local ago2 = Spring.GetTimer()
-			for i = 1, #SPLAT_DETAIL_TEX_POOL do
-				local texX = splatTexX[i]
-				local texZ = splatTexZ[i]
-				if texX then
-					glColor(SPLAT_DETAIL_TEX_POOL[i])
-					for j = 1, #texX do
-						glRenderToTexture(splattex, DrawColorBlock, texX[j], texZ[j])
-						Spring.ClearWatchDogTimer()
-						loopCount = RateCheck(loopCount, false, SPLAT_DETAIL_TEX_POOL[i])
-					end
-				end
-				Sleep()
-			end
-			cur = Spring.GetTimer()
-			Spring.Echo("Splattex rendered in: "..(Spring.DiffTimers(cur, ago2, true)))
-			glColor(1, 1, 1, 1)
-		end
 
 		if USE_SHADING_TEXTURE then
 			Spring.SetMapShadingTexture("$grass", texOut)
@@ -335,9 +342,8 @@ local function SetMapTexture(texturePool, mapTexX, mapTexZ, topTexX, topTexZ, to
 		local DrawEnd = Spring.GetTimer()
 		Spring.Echo("map fully processed in: "..(Spring.DiffTimers(DrawEnd, DrawStart, true)))
 		
-		mapfullyprocessed = nil
+		mapfullyprocessed = true
 	end
-	
 	
 	StartScript(DrawLoop)
 end
@@ -370,12 +376,12 @@ local function GetMainTex(height, vehiclePass, botPass, inWater)
 		end
 		return 19
 	end
-	local heightPower = (height + 50)/200
+	local heightPower = 1.5^((height - 180)*0.02)
 	if vehiclePass then
 		return 1 + floor((random()^heightPower)*5)
 	end
 	if botPass then
-		return 6 + floor((random()^heightPower)*5)
+		return 6 + floor(random()*5)
 	end
 	return random(11, 15)
 end
@@ -587,13 +593,12 @@ end
 local texturePool
 local mapTexX, mapTexZ, topTexX, topTexZ, topTexAlpha, splatTexX, splatTexZ, mapHeight
 
-local initialized, mapfullyprocessed = false, false
-
 function gadget:DrawGenesis()
-	if initialized ~= true then
+	if not initialized then
 		return
 	end
-	if mapfullyprocessed == true then
+	if mapfullyprocessed then
+		gadgetHandler:RemoveGadget()
 		return
 	end
 	
@@ -604,25 +609,18 @@ function gadget:DrawGenesis()
 	end
 end
 
+function gadget:MousePress(x, y, button)
+	return (button == 1) and (not mapfullyprocessed)
+end
+
 local function MakeMapTexture()
 	if (not gl.RenderToTexture) then --super bad graphic driver
+		mapfullyprocessed = true
 		return
 	end
 	texturePool = GetTextureSet(Spring.GetGameRulesParam("typemap"))
 	mapTexX, mapTexZ, topTexX, topTexZ, topTexAlpha, splatTexX, splatTexZ, mapHeight = InitializeTextures(USE_SHADING_TEXTURE, Spring.GetGameRulesParam("typemap"))
 	initialized = true
-end
-
-local function RemakeMapTexture()
-	if not Spring.IsCheatingEnabled() then
-		return
-	end
-	mapfullyprocessed = false
-	MakeMapTexture()
-end
-
-function gadget:Initialize()
-	gadgetHandler:AddChatAction("maptex", RemakeMapTexture, "Remakes Map Texture.")
 end
 
 local updateCount = 0

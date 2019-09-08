@@ -890,7 +890,7 @@ local function GetTerrainWaveFunction()
 		waveRotationsMin = 1,
 		waveRotationsMax = 8,
 		spreadScaleMin = 0.2,
-		spreadScaleMax = 0.3,
+		spreadScaleMax = 0.4,
 	}
 	
 	local params = {
@@ -1078,7 +1078,7 @@ end
 
 --------------------------------------------------------------------------------
 --------------------------------------------------------------------------------
--- Process Edges
+-- Process the terrain squares around edges
 
 local function GetSlopeWidth(startWidth, endWidth, startDist, endDist, dist)
 	local propDist = startDist + dist*(endDist - startDist)
@@ -1314,6 +1314,53 @@ local function ProcessEdges(cells, edges)
 	return tierFlood, heightMod
 end
 
+--------------------------------------------------------------------------------
+--------------------------------------------------------------------------------
+-- Generate edge and cell structures
+
+local function GenerateCellTiers(cells, waveFunc)
+	local averageheight = 0
+	for i = 1, #cells do
+		local height = waveFunc(cells[i].site[1], cells[i].site[2])
+		averageheight = averageheight + height
+	end
+	averageheight = averageheight/#cells
+	
+	local std = 0
+	for i = 1, #cells do
+		local height = waveFunc(cells[i].site[1], cells[i].site[2])
+		std = std + (height - averageheight)^2
+	end
+	std = sqrt(std/#cells)
+	
+	local waterFator = 0.2 + 0.8*random()
+	
+	local bucketWidth = 65 + std*0.55
+	local tierHeight = 120
+	local tierConst = tierHeight + 45
+	local tierMin, tierMax = 1000, -1000
+	
+	local heightOffset = -0.8*averageheight
+	
+	for i = 1, #cells do
+		local cell = cells[i]
+		local height = waveFunc(cell.site[1], cell.site[2])
+		local tier = math.floor((height + heightOffset + bucketWidth*waterFator)/bucketWidth)
+		
+		cell.tier = tier
+		cell.height = tier*tierHeight + tierConst
+		if cell.mirror then
+			cell.mirror.tier = cell.tier
+			cell.mirror.height = cell.height
+		end
+		
+		tierMin = min(tier, tierMin)
+		tierMax = max(tier, tierMax)
+	end
+	
+	return tierConst, tierHeight, tierMin, tierMax
+end
+
 local function MirrorEdgePassability(edge)
 	local mirror = edge.mirror
 	if not mirror then
@@ -1403,6 +1450,10 @@ local function GenerateEdgePassability(edgesSorted)
 	end
 end
 
+--------------------------------------------------------------------------------
+--------------------------------------------------------------------------------
+-- Heightmap application
+
 local function GetHeightMod(tierMin, tierMax, posTier, posChange, x, z)
 	if not posChange then
 		return 0
@@ -1475,48 +1526,7 @@ end
 
 --------------------------------------------------------------------------------
 --------------------------------------------------------------------------------
--- Voronoi heights
-
-local function GenerateCellTiers(cells, waveFunc)
-	local averageheight = 0
-	for i = 1, #cells do
-		local height = waveFunc(cells[i].site[1], cells[i].site[2])
-		averageheight = averageheight + height
-	end
-	averageheight = averageheight/#cells
-	
-	local std = 0
-	for i = 1, #cells do
-		local height = waveFunc(cells[i].site[1], cells[i].site[2])
-		std = std + (height - averageheight)^2
-	end
-	std = sqrt(std/#cells)
-	
-	local waterFator = random()
-	
-	local bucketWidth = 80 + std/2
-	local tierHeight = 120
-	local tierConst = tierHeight + 45
-	local tierMin, tierMax = 1000, -1000
-	
-	for i = 1, #cells do
-		local cell = cells[i]
-		local height = waveFunc(cell.site[1], cell.site[2])
-		local tier = math.floor((height - averageheight + bucketWidth*waterFator)/bucketWidth)
-		
-		cell.tier = tier
-		cell.height = tier*tierHeight + tierConst
-		if cell.mirror then
-			cell.mirror.tier = cell.tier
-			cell.mirror.height = cell.height
-		end
-		
-		tierMin = min(tier, tierMin)
-		tierMax = max(tier, tierMax)
-	end
-	
-	return tierConst, tierHeight, tierMin, tierMax
-end
+-- Start positions
 
 local function EstimateHeightDiff(mid, checkRadius, heights)
 	local sampleCount = 25
@@ -1643,7 +1653,7 @@ local function GetRandomMexPos(mexes, edges, pos, megaMex, placeRadius, maxRadiu
 	
 	local randomPoint
 	while tries < 50 do
-		randomPoint = GetRandomPointInCircle(pos, placeRadius, 100)
+		randomPoint = GetRandomPointInCircle(pos, placeRadius, 180)
 		local _, lineDistSq = GetClosestLine(randomPoint, edges, HasTierDiff)
 		if (not lineDistSq) or (lineAvoid^2 < lineDistSq) then
 			local _, pointDist = GetClosestPoint(randomPoint, mexes)
@@ -1787,7 +1797,7 @@ local function GetMetalValues(cells, edges, startCells)
 		end
 	end
 	
-	local mexSpots = 5 + floor(random()*6)
+	local mexSpots = 6 + floor(random()*6)
 	while mexSpots > 0 do
 		local mexCell = cells[random(1, #cells)]
 		local randAllocateSum = random()*totalMexAlloc
@@ -1842,7 +1852,7 @@ end
 
 --------------------------------------------------------------------------------
 --------------------------------------------------------------------------------
--- Coordination
+-- Large logical chunks
 
 local function GetSeed()
 	local mapOpts = Spring.GetMapOptions()
@@ -1856,6 +1866,12 @@ local function GetSeed()
 	end
 	
 	return random(1, 100000)
+end
+
+local function TerrainStructureTestRun()
+	local waveFunc = GetTerrainWaveFunction()
+	local cells, edges = GetVoronoi(18, 400, 500)
+	local tierConst, tierHeight, tierMin, tierMax = GenerateCellTiers(cells, waveFunc)
 end
 
 local function GetTerrainStructure()
