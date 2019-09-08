@@ -8,7 +8,7 @@ local mapinfo = {
 	shortname   = "RCrags",
 	description = "A sometimes-craggy, sometimes flat random map (12x12)",
 	author      = "GoogleFrog",
-	version     = "0.1",
+	version     = "v0.2",
 	modtype     = 3, --// 1=primary, 0=hidden, 3=map
 
 	maphardness     = 140,
