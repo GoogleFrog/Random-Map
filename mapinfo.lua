@@ -11,10 +11,7 @@ local mapinfo = {
 	version     = "0.1",
 	modtype     = 3, --// 1=primary, 0=hidden, 3=map
 
-	--startpic   = "", --// deprecated
-	--StartMusic = "", --// deprecated
-
-	maphardness     = 180,
+	maphardness     = 140,
 	notDeformable   = false,
 	gravity         = 130,
 	tidalStrength   = 18,
@@ -24,19 +21,17 @@ local mapinfo = {
 	autoShowMetal   = true,
 
 	smf = {
-		minheight = (-105),
-		maxheight = (280),
+		minheight = -105,
+		maxheight = 280,
 		smtFileName0 = "RandomBaseMap.smt",
 	},
 
 	sound = {
 		preset = "default",
-
 		passfilter = {
 			gainlf = 1.0,
 			gainhf = 1.0,
 		},
-
 		reverb = {
 		},
 	},

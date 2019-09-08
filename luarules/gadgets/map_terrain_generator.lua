@@ -46,6 +46,7 @@ local random = math.random
 -- Configuration
 
 local MIN_EDGE_LENGTH = 10
+local DISABLE_TERRAIN_GENERATOR = false
 
 --------------------------------------------------------------------------------
 --------------------------------------------------------------------------------
@@ -1494,7 +1495,7 @@ local function GenerateCellTiers(cells, waveFunc)
 	local waterFator = random()
 	
 	local bucketWidth = 80 + std/2
-	local tierHeight = 125
+	local tierHeight = 120
 	local tierConst = tierHeight + 45
 	local tierMin, tierMax = 1000, -1000
 	
@@ -1805,7 +1806,7 @@ local function GetMetalValues(cells, edges, startCells)
 		end
 		
 		if (mexCell.startPathFactor == 0) and ((not mexCell.mirror) or Dist(mexCell.averageMid, mexCell.mirror.averageMid) > 1200) then
-			local megaChance = max(0.2, min(0.8, mexCell.mexAlloc*0.8))
+			local megaChance = max(0.2, min(0.7, mexCell.mexAlloc*0.7))
 			if mexCell.mexAlloc and (random() < megaChance) and (not mexCell.unreachable) then
 				mexCell.megaMex = true
 				mexAssignment = 2
@@ -1839,11 +1840,7 @@ end
 
 --------------------------------------------------------------------------------
 --------------------------------------------------------------------------------
--- Callins
-
--- Gameframe draw debug
-local toDrawEdges = nil
-local waitCount = 0
+-- Coordination
 
 local function GetSeed()
 	local mapOpts = Spring.GetMapOptions()
@@ -1859,22 +1856,7 @@ local function GetSeed()
 	return random(1, 100000)
 end
 
-function gadget:Initialize()
-	local randomSeed = GetSeed()
-	-- 84989
-	-- 9661
-	-- 74370
-	-- 29669
-	-- 9498
-	-- 93286 flat map
-	-- 34349 blocked map, broken floodfill
-	math.randomseed(randomSeed)
-
-	Spring.SetGameRulesParam("typemap", "temperate")
-	Spring.SetGameRulesParam("mapgen_enabled", 1)
-	
-	TimerEcho("Map Terrain Generation")
-	Spring.Echo("Random Seed", randomSeed)
+local function GetTerrainStructure()
 	local waveFunc = GetTerrainWaveFunction()
 	--TerraformByFunc(waveFunc)
 	TimerEcho("Wave generation complete")
@@ -1887,33 +1869,27 @@ function gadget:Initialize()
 	table.sort(edgesSorted, CompareLength)
 	
 	local tierConst, tierHeight, tierMin, tierMax = GenerateCellTiers(cells, waveFunc)
-	GenerateEdgePassability(edgesSorted)
-	TimerEcho("Tier generation complete")
 	
+	GenerateEdgePassability(edgesSorted)
+	
+	TimerEcho("Terrain structure complete")
+
+	return cells, edges, edgesSorted, heightMod, waveFunc, tiers, tierConst, tierHeight, tierMin, tierMax
+end
+
+local function GenerateTerrainDetails(cells, edges, heightMod, waveFunc, tiers, tierConst, tierHeight, tierMin, tierMax)
 	local tierFlood, heightMod = ProcessEdges(cells, edges)
-	TimerEcho("Edge terrain complete")
+	TimerEcho("Edge processing complete")
 	
 	local tiers = tierFlood.RunFloodfillAndGetValues()
-	TimerEcho("Floodfill complete")
+	TimerEcho("Tier propagation complete")
 	
-	local heights = ApplyHeightModifiers(tierConst, tierHeight, tierMin, tierMax, tiers, heightMod, waveFunc, 0.2)
+	local tierDiff = (tierMax - tierMin)
+	local waveMult = 1/(tierDiff + 1.2)
+
+	local heights = ApplyHeightModifiers(tierConst, tierHeight, tierMin, tierMax, tiers, heightMod, waveFunc, waveMult)
 	TimerEcho("Height application complete")
 	
-	--local smoothFilter = {
-	--	{0, 0, 1},
-	--	{8, 0, 0.9},
-	--	{-8, 0, 0.9},
-	--	{0, 8, 0.9},
-	--	{0, -8, 0.9},
-	--	{8, 8, 0.63},
-	--	{8, -8, 0.63},
-	--	{-8, 8, 0.63},
-	--	{-8, -8, 0.63},
-	--	{16, 0, 0.45},
-	--	{-16, 0, 0.45},
-	--	{0, 16, 0.45},
-	--	{0, -16, 0.45},
-	--}
 	local smoothFilter = {
 		{0, 0, 1},
 		{8, 0, 1},
@@ -1932,16 +1908,59 @@ function gadget:Initialize()
 	
 	local smoothHeights = ApplyHeightSmooth(heights, smoothFilter)
 	TimerEcho("Smoothing complete")
+
+	TerraformByHeights(smoothHeights)
+	GG.mapgen_origHeight = smoothHeights
+	TimerEcho("Map terrain complete")
 	
-	startCells = SetStartCells(cells, edgesSorted, heights)
+	return smoothHeights
+end
+
+local function SetStartPositionsAndMetal(cells, edges, edgesSorted, smoothHeights)
+	local startCells = SetStartCells(cells, edgesSorted, smoothHeights)
 	SetStatboxData(startCells)
 	
 	local metalValues = GetMetalValues(cells, edges, startCells)
-	TimerEcho("Metal generation complete")
+end
+
+--------------------------------------------------------------------------------
+--------------------------------------------------------------------------------
+-- Callins
+
+-- Gameframe draw debug
+local toDrawEdges = nil
+local waitCount = 0
+
+function gadget:Initialize()
+	local randomSeed = GetSeed()
+	-- 84989
+	-- 9661
+	-- 74370
+	-- 29669
+	-- 9498
+	-- 93286 flat map
+	-- 34349 blocked map, broken floodfill
+	math.randomseed(randomSeed)
+
+	Spring.SetGameRulesParam("typemap", "temperate")
+	Spring.SetGameRulesParam("mapgen_enabled", 1)
 	
-	TerraformByHeights(smoothHeights)
-	GG.mapgen_origHeight = smoothHeights
-	TimerEcho("Map terrain generation complete")
+	if DISABLE_TERRAIN_GENERATOR then
+		GG.mapgen_mexList = {}
+		GG.mapgen_startBoxes = {}
+		return
+	end
+	
+	TimerEcho("Map Terrain Generation")
+	Spring.Echo("Random Seed", randomSeed)
+	
+	local cells, edges, edgesSorted, heightMod, waveFunc, tiers, tierConst, tierHeight, tierMin, tierMax = GetTerrainStructure()
+	
+	local smoothHeights = GenerateTerrainDetails(cells, edges, heightMod, waveFunc, tiers, tierConst, tierHeight, tierMin, tierMax)
+	
+	SetStartPositionsAndMetal(cells, edges, edgesSorted, smoothHeights)
+	
+	TimerEcho("Metal generation complete")
 end
 
 function gadget:GameFrame()
