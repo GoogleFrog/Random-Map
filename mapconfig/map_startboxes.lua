@@ -40,7 +40,7 @@ for i = 1, #GG.mapgen_startBoxes do
 	end
 	
 	aveX, aveZ = aveX/#coords, aveZ/#coords
-	local longName, shortName = GetStartboxName(aveX, aveZ)
+	local nameLong, nameShort = GetStartboxName(aveX/Game.mapSizeX, aveZ/Game.mapSizeZ)
 	
 	startBoxes[#startBoxes + 1] = {
 		boxes = {
@@ -49,8 +49,8 @@ for i = 1, #GG.mapgen_startBoxes do
 		startpoints = {
 			{aveX, aveZ},
 		},
-		nameLong = longName, 
-		nameShort = shortName,
+		nameLong = nameLong, 
+		nameShort = nameShort,
 	}
 	
 end
