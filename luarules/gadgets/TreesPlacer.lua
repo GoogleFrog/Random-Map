@@ -21,14 +21,14 @@ end
 local minTreeHeight = 10
 local maxTreeHeight = 600
 local minDistance = 40
-local density = 1/8
+local density = 0.25
 
 local floor = math.floor
 local ceil = math.ceil
 
 local getHeightDensity = function(y, invdensity) 
-	local dy = (y - 10)/(600-10)
-	local mod = -(math.min(1,dy+1))
+	local dy = (y - 10)/(900 - 10)
+	local mod = -(math.min(1, dy+1))
 	return (1 - mod) * invdensity
 end
 

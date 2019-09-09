@@ -1445,10 +1445,10 @@ local function SetEdgePassability(edge)
 		edge.terrainWidth = ((random() > 0.35) and RAMP_WIDTH) or CLIFF_WIDTH
 	end
 	
-	local onStartCell = edge.faces[1].isStartPos or (edge.faces[2] and edge.faces[2].isStartPos)
+	--local onStartCell = edge.faces[1].isStartPos or (edge.faces[2] and edge.faces[2].isStartPos)
 	
 	if edge.teirDiff >= 2 and edge.teirDiff <= 3 then
-		if edge.terrainWidth >= RAMP_WIDTH and not onStartCell then -- Avoid creating large ramps in the start cells
+		if edge.terrainWidth >= RAMP_WIDTH then
 			if (random() > 0.5) then
 				edge.terrainWidth = edge.terrainWidth*edge.teirDiff*1.4
 			end
@@ -2030,7 +2030,7 @@ end
 
 local function GetWaveHeightMult(tierMin, tierMax)
 	local tierDiff = (tierMax - tierMin)
-	local waveMult = 1/(tierDiff + 1.2)
+	local waveMult = 0.8/(tierDiff + 1.5)
 	return waveMult
 end
 
