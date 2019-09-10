@@ -1561,6 +1561,12 @@ local function SetEdgeSoloTerrain(edge)
 		return
 	end
 	
+	if #edge.faces == 1 and edge.faces[1].isMainStartPos then
+		return
+	elseif #edge.faces == 2 and edge.faces[1].isStartPos and edge.faces[2].isStartPos then
+		return
+	end
+	
 	local nonFlatNeighbours = 0
 	local thresholdLength = 400
 	local nearCliff = false
@@ -1585,6 +1591,8 @@ local function SetEdgeSoloTerrain(edge)
 	if nearCliff and #edge.faces == 1 then
 		return
 	end
+	
+	
 	
 	local fullyFlat = (nonFlatNeighbours == 0 and edge.teirDiff == 0)
 	if edge.teirDiff > 0 then

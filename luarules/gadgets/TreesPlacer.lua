@@ -20,8 +20,8 @@ end
 
 local minTreeHeight = 10
 local maxTreeHeight = 600
-local minDistance = 40
-local density = 0.5
+local minDistance = 50
+local density = 0.8
 
 local floor = math.floor
 local ceil = math.ceil
@@ -118,7 +118,7 @@ function gadget:Initialize()
 			if py > minTreeHeight and py < maxTreeHeight and
 					math.random(1, getHeightDensity(py, invDensity)) == 1 and
 					math.random() < GetTreeSlopeChance(px, pz) and
-					math.random() < GetCellTreeDensity(px, pz) then
+					math.random() < GetCellTreeDensity(x, z) then
 				
 				local rx, rz = floor(px/16), floor(pz/16)
 				if not (avoidMex[rx] and avoidMex[rx][rz]) then
