@@ -491,7 +491,8 @@ local MAP_BORDER = {
 	{{MAP_X, -10*MAP_Z}, {MAP_X, 10*MAP_Z}},
 }
 
-local POINT_COUNT = 9
+local END_FLATTENING = 1.08
+local POINT_COUNT = 11
 local CIRCLE_POINTS = {}
 for i = pi, pi*3/2 + pi/(4*POINT_COUNT), pi/(2*POINT_COUNT) do
 	CIRCLE_POINTS[#CIRCLE_POINTS + 1] = {1 + cos(i), 1 + sin(i)}
@@ -571,14 +572,14 @@ local function GenerateVoronoiCells(points)
 			end
 			if intersections then
 				if #intersections ~= 2 then
-					for e = 1, #cells do
-						CellEcho(cells[e])
-					end
-					for e = 1, #intersections do
-						PointEcho(intersections[e], "Int: " .. e)
-					end
-					Spring.Echo("#intersections ~= 2", #intersections)
-					return
+					--for e = 1, #cells do
+					--	CellEcho(cells[e])
+					--end
+					--for e = 1, #intersections do
+					--	PointEcho(intersections[e], "Int: " .. e)
+					--end
+					--Spring.Echo("#intersections ~= 2", #intersections)
+					return false
 				end
 				newCell.edges[#newCell.edges + 1] = intersections
 				otherCell.edges[#otherCell.edges + 1] = intersections
@@ -594,6 +595,10 @@ local function GenerateVoronoiCells(points)
 end
 
 local function BoundExtendedVoronoiToMapEdge(cells)
+	if not cells then
+		return false
+	end
+	
 	for i = 1, #MAP_BORDER do
 		local borderLine = MAP_BORDER[i]
 		for j = #cells, 1, -1 do
@@ -648,6 +653,10 @@ local function CheckAndFillEdgeAdjacency(thisEdge, otherEdge, sharedCell)
 end
 
 local function CleanVoronoiReferences(cells)
+	if not cells then
+		return false
+	end
+	
 	local edgeList = {}
 	local edgesAdded = {}
 	
@@ -685,6 +694,12 @@ local function CleanVoronoiReferences(cells)
 		end
 	end
 	
+	-- Set index as it is required for the self-mirror check
+	for i = 1, #edgeList do
+		local thisEdge = edgeList[i]
+		thisEdge.index = i
+	end
+	
 	-- Find edge mirror
 	for i = 1, #cells do
 		local thisCell = cells[i]
@@ -704,6 +719,10 @@ local function CleanVoronoiReferences(cells)
 							thisEdge.mirror = otherEdge
 							otherEdge.mirror = thisEdge
 							thisEdge.firstMirror = true
+							
+							if thisEdge.index == otherEdge.index then
+								thisEdge.selfMirror = true
+							end
 							break
 						end
 					end
@@ -715,7 +734,6 @@ local function CleanVoronoiReferences(cells)
 	-- Set edge length and faces
 	for i = 1, #edgeList do
 		local thisEdge = edgeList[i]
-		thisEdge.index = i
 		thisEdge.length = Length(thisEdge)
 		thisEdge.unit   = Unit(Subtract(thisEdge[2], thisEdge[1]))
 		thisEdge.otherFace = {}
@@ -811,26 +829,29 @@ local function GetVoronoi(pointNum, minSpacing, maxSpacing)
 	local points = MakeRandomPoints(pointNum, minSpacing, maxSpacing)
 	
 	local cells, edges, badSite = CleanVoronoiReferences(BoundExtendedVoronoiToMapEdge(GenerateVoronoiCells(points)))
-	while badSite do
-		points = {}
-		for i = 1, #cells do
-			local thisCell = cells[i]
-			if thisCell.site and (thisCell.index ~= badSite) and ((not thisCell.mirror) or (thisCell.mirror.index ~= badSite)) then
-				local point = {thisCell.site[1], thisCell.site[2]}
-				local pointMirror = ApplyRotSymmetry(point)
-				
-				points[#points + 1] = point
-				pointMirror.mirror = #points
-				points[#points + 1] = pointMirror
-				point.mirror = #points
-				
-				thisCell.site = nil
-				if thisCell.mirror then
-					thisCell.mirror.site = nil
+	while (not cells) or badSite do
+		if cells then
+			points = {}
+			for i = 1, #cells do
+				local thisCell = cells[i]
+				if thisCell.site and (thisCell.index ~= badSite) and ((not thisCell.mirror) or (thisCell.mirror.index ~= badSite)) then
+					local point = {thisCell.site[1], thisCell.site[2]}
+					local pointMirror = ApplyRotSymmetry(point)
+					
+					points[#points + 1] = point
+					pointMirror.mirror = #points
+					points[#points + 1] = pointMirror
+					point.mirror = #points
+					
+					thisCell.site = nil
+					if thisCell.mirror then
+						thisCell.mirror.site = nil
+					end
 				end
 			end
+		else
+			points = MakeRandomPoints(pointNum, minSpacing, maxSpacing)
 		end
-		
 		cells, edges, badSite = CleanVoronoiReferences(BoundExtendedVoronoiToMapEdge(GenerateVoronoiCells(points)))
 	end
 	return cells, edges
@@ -1147,7 +1168,7 @@ local function GetSlopeWidth(startWidth, endWidth, startDist, endDist, dist)
 	return prop*startWidth + (1 - prop)*endWidth
 end
 
-local function MakeEdgeSlope(tangDist, projDist, length, startWidth, endWidth, segStartWidth, segEndWidth, startDist, endDist, overshootStart, beyondFactor)
+local function MakeEdgeSlope(params, tangDist, projDist, length, startWidth, endWidth, segStartWidth, segEndWidth, startDist, endDist, overshootStart, beyondFactor)
 	local maxWidth = max(segStartWidth, segEndWidth)
 	beyondFactor = beyondFactor or 1
 	
@@ -1184,7 +1205,7 @@ local function MakeEdgeSlope(tangDist, projDist, length, startWidth, endWidth, s
 	end
 end
 
-local function MakeEdgeHole(tangDist, projDist, length, startWidth, endWidth, segStartWidth, segEndWidth, startDist, endDist, overshootStart, beyondFactor)
+local function MakeWaveFuncIgloo(params, tangDist, projDist, length, startWidth, endWidth, segStartWidth, segEndWidth, startDist, endDist, overshootStart, beyondFactor)
 	local maxWidth = max(segStartWidth, segEndWidth)
 	beyondFactor = beyondFactor or 1
 	
@@ -1205,7 +1226,14 @@ local function MakeEdgeHole(tangDist, projDist, length, startWidth, endWidth, se
 	
 	if (projDist < 0 and (not overshootStart)) or (projDist > length) then
 		width = ((projDist < 0) and segStartWidth) or segEndWidth
-		local offDist = ((projDist < 0) and -projDist) or (projDist - length)
+		local offDist
+		if projDist < 0 then
+			offDist  = -projDist
+			projDist = 0
+		else
+			offDist  = projDist - length
+			projDist = length
+		end
 		offDist = (offDist^beyondFactor)
 		dist = sqrt(offDist^2 + dist^2)
 		if dist > width then
@@ -1213,11 +1241,19 @@ local function MakeEdgeHole(tangDist, projDist, length, startWidth, endWidth, se
 		end
 	end
 	
-	local change = (cos(pi*dist/width) + 1)/2
-	return false, change
+	local scale = 1
+	if params then
+		local distFactor = projDist/length
+		if params.startScale and params.endScale then
+			scale = params.startScale*(1 - distFactor) + params.endScale*distFactor
+		end
+	end
+	
+	local change = scale*(cos(pi*dist/width) + 1)/2
+	return false, false, change
 end
 
-local function ApplyLineDistanceFunc(tierFlood, cellTier, otherTier, heightMod, lineStart, lineEnd, HeightFunc, startWidth, endWidth, startDist, endDist, otherClockwise, overshootStart, beyondFactor)
+local function ApplyLineDistanceFunc(tierFlood, cellTier, otherTier, heightMod, waveMod, lineStart, lineEnd, HeightFunc, heightParams, startWidth, endWidth, startDist, endDist, otherClockwise, overshootStart, beyondFactor)
 	local segStartWidth = GetSlopeWidth(startWidth, endWidth, startDist, endDist, 0)
 	local segEndWidth   = GetSlopeWidth(startWidth, endWidth, startDist, endDist, 1)
 	local width = max(segStartWidth, segEndWidth)
@@ -1265,7 +1301,7 @@ local function ApplyLineDistanceFunc(tierFlood, cellTier, otherTier, heightMod, 
 			end
 			
 			
-			local towardsCellTier, towardsOtherTier = HeightFunc(tangDist, projDist, lineLength, startWidth, endWidth, segStartWidth, segEndWidth, startDist, endDist, overshootStart, beyondFactor)
+			local towardsCellTier, towardsOtherTier, waveMultMod = HeightFunc(heightParams, tangDist, projDist, lineLength, startWidth, endWidth, segStartWidth, segEndWidth, startDist, endDist, overshootStart, beyondFactor)
 			local posIndex = GetPosIndex(x, z)
 			
 			if towardsCellTier then
@@ -1281,12 +1317,24 @@ local function ApplyLineDistanceFunc(tierFlood, cellTier, otherTier, heightMod, 
 					heightMod[posIndex][otherTier] = towardsOtherTier
 				end
 			end
+			
+			if waveMultMod then
+				if waveMultMod > 0 then
+					if ((not waveMod.up[posIndex]) or waveMod.up[posIndex] < waveMultMod) then
+						waveMod.up[posIndex] = waveMultMod
+					end
+				else
+					if ((not waveMod.down[posIndex]) or waveMod.down[posIndex] > waveMultMod) then
+						waveMod.down[posIndex] = waveMultMod
+					end
+				end
+			end
 		end
 	end
 end
 
 local function GetLineHeightModifiers(tierFlood, cellTier, otherTier, heightMod, startPoint, endPoint, width, otherClockwise)
-	ApplyLineDistanceFunc(tierFlood, cellTier, otherTier, heightMod, startPoint, endPoint, MakeEdgeSlope, width, width, 0, 1, otherClockwise, true, 1.07)
+	ApplyLineDistanceFunc(tierFlood, cellTier, otherTier, heightMod, false, startPoint, endPoint, MakeEdgeSlope, false, width, width, 0, 1, otherClockwise, true, END_FLATTENING)
 end
 
 local function GetCurveHeightModifiers(tierFlood, cellTier, otherTier, heightMod, curve, startWidth, endWidth, otherClockwise)
@@ -1302,7 +1350,7 @@ local function GetCurveHeightModifiers(tierFlood, cellTier, otherTier, heightMod
 	for i = 1, #curve - 1 do
 		local startDist = curveDist[i]/totalLength
 		local endDist = curveDist[i+1]/totalLength
-		ApplyLineDistanceFunc(tierFlood, cellTier, otherTier, heightMod, curve[i], curve[i + 1], MakeEdgeSlope, startWidth, endWidth, startDist, endDist, otherClockwise, false, 1.07)
+		ApplyLineDistanceFunc(tierFlood, cellTier, otherTier, heightMod, false, curve[i], curve[i + 1], MakeEdgeSlope, heightParams, startWidth, endWidth, startDist, endDist, otherClockwise, false, END_FLATTENING)
 	end
 end
 
@@ -1366,13 +1414,14 @@ local function GenerateEdgeMeetTerrain(tierFlood, heightMod, cells, cell, edge, 
 	GetCurveHeightModifiers(tierFlood, cellTier, otherTier, heightMod, curve, otherEdge.terrainWidth, edge.terrainWidth, otherClockwise)
 end
 
-local function GenerateEdgeTerrain(heightMod, edge)
-	LineEcho(edge, "ApplyLineDistanceFunc")
-	ApplyLineDistanceFunc(false, edge.soloTerrainTier, edge.soloTerrainAimTier, heightMod, edge[1], edge[2], edge.soloTerrainFunc, edge.soloTerrainWidth, edge.soloTerrainWidth, 0, 1, false, false, 1)
+local function GenerateEdgeTerrain(heightMod, waveMod, edge)
+	ApplyLineDistanceFunc(false, edge.soloTerrainTier, edge.soloTerrainAimTier, heightMod, waveMod, edge[1], edge[2],
+		edge.soloTerrainFunc, edge.soloTerrainParams, edge.soloTerrainStartWidth, edge.soloTerrainEndWidth, 0, 1, false, false, 1)
 end
 
 local function ProcessEdges(cells, edges)
 	local heightMod = {}
+	local waveMod = {up = {}, down = {}}
 	local tierFlood = GetFloodfillHandler(cells[1].tier)
 	for i = 1, #edges do
 		local thisEdge = edges[i]
@@ -1388,11 +1437,11 @@ local function ProcessEdges(cells, edges)
 		end
 		
 		if thisEdge.soloTerrainFunc then
-			GenerateEdgeTerrain(heightMod, thisEdge)
+			GenerateEdgeTerrain(heightMod, waveMod, thisEdge)
 		end
 	end
 	
-	return tierFlood, heightMod
+	return tierFlood, heightMod, waveMod
 end
 
 --------------------------------------------------------------------------------
@@ -1485,14 +1534,13 @@ local function SetEdgePassability(edge)
 	
 	--local onStartCell = edge.faces[1].isStartPos or (edge.faces[2] and edge.faces[2].isStartPos)
 	
-	if edge.teirDiff >= 2 and edge.teirDiff <= 3 then
-		if edge.terrainWidth >= RAMP_WIDTH then
-			if (random() > 0.5) then
-				edge.terrainWidth = edge.terrainWidth*edge.teirDiff*1.4
-			end
-		elseif edge.terrainWidth <= CLIFF_WIDTH then
-			edge.terrainWidth = edge.terrainWidth*edge.teirDiff
-		end
+	if edge.teirDiff >= 2 and edge.teirDiff <= 3 and edge.terrainWidth >= RAMP_WIDTH and (random() > 0.5) then
+		edge.terrainWidth = edge.terrainWidth*edge.teirDiff*1.4
+	end
+	
+	if edge.terrainWidth <= CLIFF_WIDTH then
+		edge.cliffEdge = true
+		edge.terrainWidth = edge.terrainWidth*edge.teirDiff
 	end
 	
 	if (edge.terrainWidth/edge.teirDiff <= CLIFF_WIDTH) or (edge.teirDiff > 3) then
@@ -1509,35 +1557,82 @@ local function SetEdgePassability(edge)
 end
 
 local function SetEdgeSoloTerrain(edge)
-	if edge.teirDiff ~= 0 then
+	if edge.teirDiff > 1 then
 		return
 	end
 	
-	if edge.length > 300 then
-		return
-	end
-	
+	local nonFlatNeighbours = 0
+	local thresholdLength = 400
+	local nearCliff = false
 	for n = 1, 2 do
 		local nbhd = edge.neighbours[n]
 		for i = 1, #nbhd do
 			local otherEdge = nbhd[i]
-			if otherEdge.teirDiff ~= 0 then
-				return
+			if otherEdge.teirDiff > 1 then
+				thresholdLength = 120
+				nonFlatNeighbours = nonFlatNeighbours + 1
+			elseif otherEdge.teirDiff > 0 then
+				thresholdLength = 220
+				nonFlatNeighbours = nonFlatNeighbours + 1
+			end
+			
+			if otherEdge.cliffEdge then
+				nearCliff = true
 			end
 		end
 	end
 	
-	PointEcho(GetMidpoint(edge), "SetEdgeSoloTerrain")
+	if nearCliff and #edge.faces == 1 then
+		return
+	end
+	
+	local fullyFlat = (nonFlatNeighbours == 0 and edge.teirDiff == 0)
+	if edge.teirDiff > 0 then
+		thresholdLength = thresholdLength*0.5
+	end
+	
+	local effectMult = 1
+	if edge.length > thresholdLength then
+		if edge.length > 2*thresholdLength then
+			return
+		end
+		local effectMultOffset = (fullyFlat and 0.5) or 0
+		effectMult = effectMultOffset + (1 - effectMultOffset)*(edge.length - thresholdLength)/thresholdLength
+	end
 	
 	edge.vehPass = false
 	edge.botPass = false
 	
 	local otherTier = edge.lowTeir + 1
 	
-	edge.soloTerrainFunc = MakeEdgeHole
-	edge.soloTerrainTier = edge.lowTeir
-	edge.soloTerrainAimTier = otherTier
-	edge.soloTerrainWidth = 180
+	local width = 0.5*edge.length + 100 + 150*random()
+	
+	edge.soloTerrainFunc       = MakeWaveFuncIgloo
+	edge.soloTerrainTier       = edge.lowTeir
+	edge.soloTerrainAimTier    = otherTier
+	edge.soloTerrainStartWidth = width
+	edge.soloTerrainEndWidth   = width + (2*random() - 1)*(5 + 0.2*edge.length)
+	
+	local startScale = 1.7*random() - 0.9
+	local endScaleChange = 0.2*random() - 0.1
+	if edge.teirDiff == 0 and ((nonFlatNeighbours == 0 and random() < 0.6) or (nonFlatNeighbours == 1 and random() < 0.35)) then
+		local sign = ((startScale > 0) and 1) or -1
+		startScale = 0.3*sign + 0.8*startScale
+	end
+	
+	if edge.length < 50 then
+		endScaleChange = endScaleChange*0.2
+	end
+	
+	edge.soloTerrainParams = {
+		startScale = startScale*effectMult,
+		endScale = (startScale + endScaleChange)*effectMult,
+	}
+	
+	if edge.selfMirror then
+		edge.soloTerrainStartWidth = edge.soloTerrainEndWidth
+		edge.soloTerrainParams.startScale = edge.soloTerrainParams.endScale
+	end
 	
 	return otherTier
 end
@@ -1550,15 +1645,19 @@ local function MirrorEdgePassability(edge)
 
 	mirror.terrainWidth = edge.terrainWidth
 	mirror.teirDiff     = edge.teirDiff
+	mirror.cliffEdge    = edge.cliffEdge
+	mirror.lowTeir      = edge.lowTeir
 	mirror.highTeir     = edge.highTeir
 	mirror.vehPass      = edge.vehPass
 	mirror.botPass      = edge.botPass
 	mirror.landPass     = edge.landPass
 	
-	mirror.soloTerrainWidth   = edge.soloTerrainWidth
-	mirror.soloTerrainTier    = edge.soloTerrainTier
-	mirror.soloTerrainAimTier = edge.soloTerrainAimTier
-	mirror.soloTerrainFunc    = edge.soloTerrainFunc
+	mirror.soloTerrainStartWidth = edge.soloTerrainStartWidth
+	mirror.soloTerrainEndWidth   = edge.soloTerrainEndWidth
+	mirror.soloTerrainTier       = edge.soloTerrainTier
+	mirror.soloTerrainAimTier    = edge.soloTerrainAimTier
+	mirror.soloTerrainFunc       = edge.soloTerrainFunc
+	mirror.soloTerrainParams     = edge.soloTerrainParams
 end
 
 local function GenerateEdgePassability(edgesSorted, tierMin, tierMax)
@@ -1624,7 +1723,7 @@ local function GetHeightMod(tierMin, tierMax, posTier, posChange, x, z)
 	return tierChange
 end
 
-local function ApplyHeightModifiers(tierConst, tierHeight, tierMin, tierMax, tiers, heightMod, waveFunc, waveMult)
+local function ApplyHeightModifiers(tierConst, tierHeight, tierMin, tierMax, tiers, heightMod, waveMod, waveFunc, waveMult)
 	local heights = {}
 	
 	for x = 0, MAP_X, SQUARE_SIZE do
@@ -1633,8 +1732,14 @@ local function ApplyHeightModifiers(tierConst, tierHeight, tierMin, tierMax, tie
 			local posIndex = GetPosIndex(x, z)
 			local baseHeight = tierConst + tierHeight*tiers[x][z]
 			local change = GetHeightMod(tierMin, tierMax, tiers[x][z], heightMod[posIndex], x, z)
+			local waveHeight = 0
+			if waveFunc then
+				local upmod = (waveMod and waveMod.up[posIndex]) or 0
+				local downmod = (waveMod and waveMod.down[posIndex]) or 0
+				waveHeight = waveFunc(x, z)*(waveMult + upmod + downmod)
+			end
 			
-			heights[x][z] = baseHeight + tierHeight*change + ((waveFunc and waveFunc(x, z)*waveMult) or 0)
+			heights[x][z] = baseHeight + waveHeight + tierHeight*change
 		end
 	end
 	
@@ -1878,7 +1983,7 @@ local function GetRandomMexPos(mexes, edges, pos, megaMex, placeRadius, maxRadiu
 				return randomPoint
 			end
 		end
-		pointAvoid  = max(pointAvoid  - 10, 170)
+		pointAvoid  = max(pointAvoid  - 10, 190)
 		lineAvoid   = max(lineAvoid   - 20, 20)
 		placeRadius = min(placeRadius + 20, maxRadius)
 		
@@ -2083,10 +2188,14 @@ local function SetTreeDensity(cells)
 	for i = 1, #cells do
 		local thisCell = cells[i]
 		if thisCell.firstMirror then
-			if thisCell.isStartPos then
-				thisCell.treeDensity = 0.05
+			if thisCell.isMainStartPos then
+				thisCell.treeDensity = 0
+			elseif thisCell.isAuxStartPos then
+				thisCell.treeDensity = max(0, random()*0.1)
+			elseif random() < 0.7 then
+				thisCell.treeDensity = 0.1 + ((random() < 0.15 and (0.6 + 0.3*random())) or 0)
 			else
-				thisCell.treeDensity = 0.15 + 0.85*random()
+				thisCell.treeDensity = 0
 			end
 			if thisCell.mirror then
 				thisCell.mirror.treeDensity = thisCell.treeDensity
@@ -2144,12 +2253,12 @@ local function GetWaveHeightMult(tierMin, tierMax)
 	return waveMult
 end
 
-local function GetTerrainStructure()
+local function GetTerrainStructure(pointNum, minSpacing, maxSpacing)
 	local waveFunc = GetTerrainWaveFunction()
 	--TerraformByFunc(waveFunc)
 	TimerEcho("Wave generation complete")
 	
-	local cells, edges = GetVoronoi(18, 400, 500)
+	local cells, edges = GetVoronoi(pointNum, minSpacing, maxSpacing)
 	TimerEcho("Voronoi generation complete")
 	
 	local edgesSorted = Spring.Utilities.CopyTable(edges, false)
@@ -2167,13 +2276,13 @@ local function GetTerrainStructure()
 end
 
 local function GenerateTerrainDetails(cells, edges, heightMod, waveFunc, tiers, tierConst, tierHeight, tierMin, tierMax)
-	local tierFlood, heightMod = ProcessEdges(cells, edges)
+	local tierFlood, heightMod, waveMod = ProcessEdges(cells, edges)
 	TimerEcho("Edge processing complete")
 	
 	local tiers = tierFlood.RunFloodfillAndGetValues()
 	TimerEcho("Tier propagation complete")
 
-	local heights = ApplyHeightModifiers(tierConst, tierHeight, tierMin, tierMax, tiers, heightMod, waveFunc, GetWaveHeightMult(tierMin, tierMax))
+	local heights = ApplyHeightModifiers(tierConst, tierHeight, tierMin, tierMax, tiers, heightMod, waveMod, waveFunc, GetWaveHeightMult(tierMin, tierMax))
 	TimerEcho("Height application complete")
 	
 	local smoothFilter = {
@@ -2210,11 +2319,26 @@ end
 local toDrawEdges = nil
 local waitCount = 0
 
+local oldVoronoiParams = {
+	points = 18,
+	minSpace = 400,
+	maxSpace = 500,
+}
+
+local newVoronoiParams = {
+	points = 30,
+	minSpace = 200,
+	maxSpace = 300,
+}
+
 function gadget:Initialize()
+	local params = oldVoronoiParams
+
 	local randomSeed = GetSeed()
 	-- 45998
 	-- 44245
 	-- 23078 floodfill issue
+	-- 65890 generates a voronoi that has an intersection crash
 	math.randomseed(randomSeed)
 
 	Spring.SetGameRulesParam("typemap", "temperate")
@@ -2229,8 +2353,8 @@ function gadget:Initialize()
 	TimerEcho("Map Terrain Generation")
 	Spring.Echo("Random Seed", randomSeed)
 	
-	local cells, edges, edgesSorted, heightMod, waveFunc, tiers, tierConst, tierHeight, tierMin, tierMax, startCell = GetTerrainStructure()
-	toDrawEdges = edges
+	local cells, edges, edgesSorted, heightMod, waveFunc, tiers, tierConst, tierHeight, tierMin, tierMax, startCell = GetTerrainStructure(params.points, params.minSpace, params.maxSpace)
+	--toDrawEdges = edges
 	
 	local smoothHeights = GenerateTerrainDetails(cells, edges, heightMod, waveFunc, tiers, tierConst, tierHeight, tierMin, tierMax)
 	
@@ -2307,7 +2431,7 @@ function LineDraw(p1, p2)
 end
 
 function CellEcho(cell)
-	PointEcho(cell.site, "Cell: " .. cell.index .. ", edges: " .. #cell.edges)
+	--PointEcho(cell.site, "Cell: " .. cell.index .. ", edges: " .. #cell.edges)
 	for k = 1, #cell.edges do
 		LineDraw(cell.edges[k])
 	end

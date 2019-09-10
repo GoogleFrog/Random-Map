@@ -21,7 +21,7 @@ end
 local minTreeHeight = 10
 local maxTreeHeight = 600
 local minDistance = 40
-local density = 0.25
+local density = 0.5
 
 local floor = math.floor
 local ceil = math.ceil
@@ -129,10 +129,9 @@ function gadget:Initialize()
 	end
 end
 
-
 function gadget:Shutdown()
 	local features = Spring.GetAllFeatures()
-	for i=1, #features do
+	for i = 1, #features do
 		local featureID = features[i]
 		Spring.DestroyFeature(featureID)
 	end
