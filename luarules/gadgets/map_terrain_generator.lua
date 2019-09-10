@@ -753,12 +753,15 @@ local function CleanVoronoiReferences(cells)
 			for j = 1, #thisCell.edges do
 				local thisEdge = thisCell.edges[j]
 				local rotLine = ApplyRotSymmetry(thisEdge[1], thisEdge[2])
-				for k = 1, #mirrorCell.edges do
-					local otherEdge = mirrorCell.edges[k]
-					if SameLine(otherEdge, rotLine) then
-						thisEdge.mirror = otherEdge
-						otherEdge.mirror = thisEdge
-						break
+				if not thisEdge.mirror then
+					for k = 1, #mirrorCell.edges do
+						local otherEdge = mirrorCell.edges[k]
+						if SameLine(otherEdge, rotLine) then
+							thisEdge.mirror = otherEdge
+							otherEdge.mirror = thisEdge
+							thisEdge.firstMirror = true
+							break
+						end
 					end
 				end
 			end
@@ -1175,6 +1178,43 @@ local function MakeEdgeSlope(tangDist, projDist, length, startWidth, endWidth, s
 	end
 end
 
+local function MakeEdgeHole(tangDist, projDist, length, startWidth, endWidth, segStartWidth, segEndWidth, startDist, endDist, overshootStart, beyondFactor)
+	local maxWidth = max(segStartWidth, segEndWidth)
+	beyondFactor = beyondFactor or 1
+	
+	if tangDist < -maxWidth then
+		return
+	end
+	if tangDist > maxWidth then
+		return
+	end
+	
+	local dist = abs(tangDist)
+	local width = GetSlopeWidth(startWidth, endWidth, startDist, endDist, projDist/length)
+	local sign = ((tangDist > 0) and 1) or -1
+	
+	if dist > width then
+		return
+	end
+	
+	if (projDist < 0 and (not overshootStart)) or (projDist > length) then
+		width = ((projDist < 0) and segStartWidth) or segEndWidth
+		local offDist = ((projDist < 0) and -projDist) or (projDist - length)
+		offDist = (offDist^beyondFactor)
+		dist = sqrt(offDist^2 + dist^2)
+		if dist > width then
+			return
+		end
+	end
+	
+	local change = (1 - cos(pi*(sign*dist/2 + width/2)/width))/2
+	if change > 0.5 then
+		return false, (1 - change)
+	else
+		return change, false
+	end
+end
+
 local function ApplyLineDistanceFunc(tierFlood, cellTier, otherTier, heightMod, lineStart, lineEnd, HeightFunc, startWidth, endWidth, startDist, endDist, otherClockwise, overshootStart, beyondFactor)
 	local segStartWidth = GetSlopeWidth(startWidth, endWidth, startDist, endDist, 0)
 	local segEndWidth   = GetSlopeWidth(startWidth, endWidth, startDist, endDist, 1)
@@ -1210,8 +1250,9 @@ local function ApplyLineDistanceFunc(tierFlood, cellTier, otherTier, heightMod, 
 			if not otherClockwise then
 				tangDist = -tangDist
 			end
-			local tangDistAbs = abs(tangDist)
-			if projDist > -8 and projDist < lineLength + 8 and tangDist > -20 and tangDist < 40 then
+			
+			if tierFlood and (projDist > -8 and projDist < lineLength + 8 and tangDist > -20 and tangDist < 40) then
+				local tangDistAbs = abs(tangDist)
 				if projDist < 0 then
 					tangDistAbs = tangDistAbs - projDist*3
 				elseif projDist > lineLength then
@@ -1263,7 +1304,7 @@ local function GetCurveHeightModifiers(tierFlood, cellTier, otherTier, heightMod
 	end
 end
 
-local function GetEdgeBoundary(tierFlood, heightMod, cells, cell, edge, otherEdge, edgeIncidence)
+local function GenerateEdgeMeetTerrain(tierFlood, heightMod, cells, cell, edge, otherEdge, edgeIncidence)
 	local cellIndex = cell.index
 	local intPoint = edge[edgeIncidence]
 	
@@ -1323,6 +1364,10 @@ local function GetEdgeBoundary(tierFlood, heightMod, cells, cell, edge, otherEdg
 	GetCurveHeightModifiers(tierFlood, cellTier, otherTier, heightMod, curve, otherEdge.terrainWidth, edge.terrainWidth, otherClockwise)
 end
 
+local function GenerateEdgeTerrain(heightMod, edge)
+	ApplyLineDistanceFunc(false, edge.soloTerrainTier, edge.soloTerrainAimTier, heightMod, edge[1], edge[2], edge.soloTerrainFunc, edge.soloTerrainWidth, edge.soloTerrainWidth, 0, 1, false, false, 1.07)
+end
+
 local function ProcessEdges(cells, edges)
 	local heightMod = {}
 	local tierFlood = GetFloodfillHandler(cells[1].tier)
@@ -1334,9 +1379,13 @@ local function ProcessEdges(cells, edges)
 				local otherEdge = nbhd[j]
 				local sharedCell = thisEdge.incidentFace[otherEdge.index]
 				if sharedCell and otherEdge.index < thisEdge.index then
-					GetEdgeBoundary(tierFlood, heightMod, cells, sharedCell, thisEdge, otherEdge, n)
+					GenerateEdgeMeetTerrain(tierFlood, heightMod, cells, sharedCell, thisEdge, otherEdge, n)
 				end
 			end
+		end
+		
+		if thisEdge.soloTerrainFunc then
+			GenerateEdgeTerrain(heightMod, thisEdge)
 		end
 	end
 	
@@ -1388,20 +1437,6 @@ local function GenerateCellTiers(cells, waveFunc)
 	end
 	
 	return tierConst, tierHeight, tierMin, tierMax
-end
-
-local function MirrorEdgePassability(edge)
-	local mirror = edge.mirror
-	if not mirror then
-		return
-	end
-
-	mirror.terrainWidth = edge.terrainWidth
-	mirror.teirDiff     = edge.teirDiff
-	mirror.highTeir     = edge.highTeir
-	mirror.vehPass      = edge.vehPass
-	mirror.botPass      = edge.botPass
-	mirror.landPass     = edge.landPass
 end
 
 local CLIFF_WIDTH = 20
@@ -1470,16 +1505,79 @@ local function SetEdgePassability(edge)
 	
 end
 
+local function SetEdgeSoloTerrain(edge)
+	if edge.teirDiff ~= 0 then
+		return
+	end
+	
+	for n = 1, 2 do
+		local nbhd = edge.neighbours[n]
+		for i = 1, #nbhd do
+			local otherEdge = nbhd[i]
+			if otherEdge.teirDiff ~= 0 then
+				return
+			end
+		end
+	end
+	
+	edge.vehPass = false
+	edge.botPass = false
+	
+	edge.soloTerrainFunc = MakeEdgeHole
+	edge.soloTerrainTier = lowTeir
+	edge.soloTerrainAimTier = lowTeir - 3
+	edge.soloTerrainWidth = 80
+end
+
+local function MirrorEdgePassability(edge)
+	local mirror = edge.mirror
+	if not mirror then
+		return
+	end
+
+	mirror.terrainWidth = edge.terrainWidth
+	mirror.teirDiff     = edge.teirDiff
+	mirror.highTeir     = edge.highTeir
+	mirror.vehPass      = edge.vehPass
+	mirror.botPass      = edge.botPass
+	mirror.landPass     = edge.landPass
+	
+	mirror.soloTerrainWidth   = edge.soloTerrainWidth
+	mirror.soloTerrainTier    = edge.soloTerrainTier
+	mirror.soloTerrainAimTier = edge.soloTerrainAimTier
+	mirror.soloTerrainFunc    = edge.soloTerrainFunc
+end
+
 local function GenerateEdgePassability(edgesSorted)
+	-- Set boundaries between cells of distinct tiers
 	-- Smallest to largest
 	for i = #edgesSorted, 1, -1 do
 		local thisEdge = edgesSorted[i]
-		if not thisEdge.terrainWidth then
+		if thisEdge.firstMirror then
 			SetEdgePassability(thisEdge)
+		end
+	end
+	
+	-- Set boundaries for short edges that exist in flat areas.
+	-- Smallest to largest
+	for i = #edgesSorted, 1, -1 do
+		local thisEdge = edgesSorted[i]
+		if thisEdge.firstMirror then
+			if thisEdge.length > 300 then
+				break
+			end
+			SetEdgeSoloTerrain(thisEdge)
+		end
+	end
+	
+	for i = 1, #edgesSorted do
+		local thisEdge = edgesSorted[i]
+		if thisEdge.firstMirror then
 			MirrorEdgePassability(thisEdge)
 		end
 	end
 end
+
 
 --------------------------------------------------------------------------------
 --------------------------------------------------------------------------------
@@ -2119,7 +2217,7 @@ function gadget:Initialize()
 	Spring.Echo("Random Seed", randomSeed)
 	
 	local cells, edges, edgesSorted, heightMod, waveFunc, tiers, tierConst, tierHeight, tierMin, tierMax, startCell = GetTerrainStructure()
-	--toDrawEdges = edges
+	toDrawEdges = edges
 	
 	local smoothHeights = GenerateTerrainDetails(cells, edges, heightMod, waveFunc, tiers, tierConst, tierHeight, tierMin, tierMax)
 	
