@@ -127,6 +127,11 @@ local function drawCopySquare()
 	glTexRect(-1, 1, 1, -1)
 end
 
+local function LowerHalfRotateSymmetry()
+	glTexRect(-1, -1, 1, 0, 0, 0, 1, 0.5)
+	glTexRect(1, 1, -1, 0, 0, 0, 1, 0.5)
+end
+
 local function drawRectOnTex(x1, z1, x2, z2, sx1, sz1, sx2, sz2)
 	glTexRect(x1, z1, x2, z2, sx1, sz1, sx2, sz2)
 end
@@ -153,7 +158,7 @@ local function SetMapTexture(texturePool, mapTexX, mapTexZ, topTexX, topTexZ, to
 	local usedgrass
 	local usedminimap
 	
-	local fulltex = gl.CreateTexture(MAP_X/BLOCK_SIZE, MAP_Z/BLOCK_SIZE,
+	local topFullTex = gl.CreateTexture(MAP_X/BLOCK_SIZE, MAP_Z/BLOCK_SIZE,
 		{
 			border = false,
 			min_filter = GL.LINEAR,
@@ -163,12 +168,12 @@ local function SetMapTexture(texturePool, mapTexX, mapTexZ, topTexX, topTexZ, to
 			fbo = true,
 		}
 	)
-	if not fulltex then
+	if not topFullTex then
 		return
 	end
 	
 	Spring.Echo("Generated blank fulltex")
-	local splattex = USE_SHADING_TEXTURE and gl.CreateTexture(MAP_X/BLOCK_SIZE, MAP_Z/BLOCK_SIZE,
+	local topSplattex = USE_SHADING_TEXTURE and gl.CreateTexture(MAP_X/BLOCK_SIZE, MAP_Z/BLOCK_SIZE,
 		{
 			format = GL_RGBA32F,
 			border = false,
@@ -193,7 +198,7 @@ local function SetMapTexture(texturePool, mapTexX, mapTexZ, topTexX, topTexZ, to
 				for j = 1, #texX do
 					local heightMult = 0.15*(mapHeight[texX[j]][texZ[j]]/400) + 0.85
 					glColor(1, 1, 1, heightMult)
-					glRenderToTexture(fulltex, DrawTexBlock, texX[j], texZ[j])
+					glRenderToTexture(topFullTex, DrawTexBlock, texX[j], texZ[j])
 					loopCount = RateCheck(loopCount, texturePool[i].texture)
 				end
 				Sleep()
@@ -215,7 +220,7 @@ local function SetMapTexture(texturePool, mapTexX, mapTexZ, topTexX, topTexZ, to
 				for j = 1, #texX do
 					if texAlpha[j] > 0.01 then
 						glColor(1, 1, 1, texAlpha[j])
-						glRenderToTexture(fulltex, DrawTexBlock, texX[j], texZ[j])
+						glRenderToTexture(topFullTex, DrawTexBlock, texX[j], texZ[j])
 						loopCount = RateCheck(loopCount, texturePool[i].texture)
 					end
 				end
@@ -236,7 +241,7 @@ local function SetMapTexture(texturePool, mapTexX, mapTexZ, topTexX, topTexZ, to
 				if texX then
 					glColor(SPLAT_DETAIL_TEX_POOL[i])
 					for j = 1, #texX do
-						glRenderToTexture(splattex, DrawColorBlock, texX[j], texZ[j])
+						glRenderToTexture(topSplattex, DrawColorBlock, texX[j], texZ[j])
 						Spring.ClearWatchDogTimer()
 						loopCount = RateCheck(loopCount, false, SPLAT_DETAIL_TEX_POOL[i])
 					end
@@ -248,8 +253,39 @@ local function SetMapTexture(texturePool, mapTexX, mapTexZ, topTexX, topTexZ, to
 			glColor(1, 1, 1, 1)
 		end
 
-		local texOut = fulltex
 		Spring.Echo("Starting to render SquareTextures")
+		local fulltex = gl.CreateTexture(MAP_X/BLOCK_SIZE, MAP_Z/BLOCK_SIZE,
+			{
+				border = false,
+				min_filter = GL.LINEAR,
+				mag_filter = GL.LINEAR,
+				wrap_s = GL.CLAMP_TO_EDGE,
+				wrap_t = GL.CLAMP_TO_EDGE,
+				fbo = true,
+			}
+		)
+		local splattex = USE_SHADING_TEXTURE and gl.CreateTexture(MAP_X/BLOCK_SIZE, MAP_Z/BLOCK_SIZE,
+			{
+				format = GL_RGBA32F,
+				border = false,
+				min_filter = GL.LINEAR,
+				mag_filter = GL.LINEAR,
+				wrap_s = GL.CLAMP_TO_EDGE,
+				wrap_t = GL.CLAMP_TO_EDGE,
+				fbo = true,
+			}
+		)
+		
+		gl.Blending(false)
+		glTexture(topFullTex)
+		glRenderToTexture(fulltex , LowerHalfRotateSymmetry)
+		
+		if topSplattex then
+			glTexture(topSplattex)
+			glRenderToTexture(splattex , LowerHalfRotateSymmetry)
+		end
+
+		local texOut = fulltex
 		
 		GG.mapgen_squareTexture  = {}
 		GG.mapgen_currentTexture = {}
@@ -270,7 +306,7 @@ local function SetMapTexture(texturePool, mapTexX, mapTexZ, topTexX, topTexZ, to
 						fbo = true,
 					}
 				)
-				local origTex = glCreateTexture(SQUARE_SIZE/BLOCK_SIZE, SQUARE_SIZE/BLOCK_SIZE,
+				local origTex = glCreateTexture(SQUARE_SIZE, SQUARE_SIZE,
 					{
 						border = false,
 						min_filter = GL.LINEAR,
@@ -280,7 +316,7 @@ local function SetMapTexture(texturePool, mapTexX, mapTexZ, topTexX, topTexZ, to
 						fbo = true,
 					}
 				)
-				local curTex = glCreateTexture(SQUARE_SIZE/BLOCK_SIZE, SQUARE_SIZE/BLOCK_SIZE,
+				local curTex = glCreateTexture(SQUARE_SIZE, SQUARE_SIZE,
 					{
 						border = false,
 						min_filter = GL.LINEAR,
@@ -291,6 +327,7 @@ local function SetMapTexture(texturePool, mapTexX, mapTexZ, topTexX, topTexZ, to
 					}
 				)
 				glTexture(texOut)
+				
 				glRenderToTexture(squareTex, DrawTextureOnSquare, 0, 0, SQUARE_SIZE, x/MAP_X, z/MAP_Z, SQUARE_SIZE/MAP_X, SQUARE_SIZE/MAP_Z)
 				glRenderToTexture(origTex  , DrawTextureOnSquare, 0, 0, SQUARE_SIZE, x/MAP_X, z/MAP_Z, SQUARE_SIZE/MAP_X, SQUARE_SIZE/MAP_Z)
 				glRenderToTexture(curTex   , DrawTextureOnSquare, 0, 0, SQUARE_SIZE, x/MAP_X, z/MAP_Z, SQUARE_SIZE/MAP_X, SQUARE_SIZE/MAP_Z)
@@ -300,7 +337,7 @@ local function SetMapTexture(texturePool, mapTexX, mapTexZ, topTexX, topTexZ, to
 				GG.mapgen_fulltex = fulltex
 				
 				glTexture(false)
-				--gl.GenerateMipmap(squareTex)
+				gl.GenerateMipmap(squareTex)
 				Spring.SetMapSquareTexture(sx, sz, squareTex)
 			end
 		end
@@ -444,9 +481,10 @@ local function InitializeTextures(useSplat, typemap)
 	
 	for x = 0, MAP_X - 1, BLOCK_SIZE do
 		mapHeight[x] = {}
-		for z = 0, MAP_Z - 1, BLOCK_SIZE do
+		for z = 0, MAP_Z/2 - 1, BLOCK_SIZE do
 			local tex, splat, topTex, topAlpha, height = GetSlopeTexture(x, z)
 			
+			-- Texture is flipped for the lower half of the map
 			mapTexX[tex] = mapTexX[tex] or {}
 			mapTexZ[tex] = mapTexZ[tex] or {}
 			mapTexX[tex][#mapTexX[tex] + 1] = x

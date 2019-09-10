@@ -246,7 +246,9 @@ local function SamePoint(p1, p2, acc)
 end
 
 local function SameLine(l1, l2)
-	return (SamePoint(l1[1], l2[1], 5) and SamePoint(l1[2], l2[2], 5)) or (SamePoint(l1[1], l2[2], 5) and SamePoint(l1[2], l2[1], 5))
+	local same = (SamePoint(l1[1], l2[1], 5) and SamePoint(l1[2], l2[2], 5))
+	local sameButReversed = (SamePoint(l1[1], l2[2], 5) and SamePoint(l1[2], l2[1], 5))
+	return same or sameButReversed, sameButReversed
 end
 
 local function CompareLength(a, b)
@@ -683,6 +685,33 @@ local function CleanVoronoiReferences(cells)
 		end
 	end
 	
+	-- Find edge mirror
+	for i = 1, #cells do
+		local thisCell = cells[i]
+		local mirrorCell = thisCell.mirror
+		if mirrorCell then
+			for j = 1, #thisCell.edges do
+				local thisEdge = thisCell.edges[j]
+				local rotLine = ApplyRotSymmetry(thisEdge[1], thisEdge[2])
+				if not thisEdge.mirror then
+					for k = 1, #mirrorCell.edges do
+						local otherEdge = mirrorCell.edges[k]
+						local same, reversed = SameLine(otherEdge, rotLine)
+						if same then
+							if reversed then
+								otherEdge[1], otherEdge[2] = otherEdge[2], otherEdge[1]
+							end
+							thisEdge.mirror = otherEdge
+							otherEdge.mirror = thisEdge
+							thisEdge.firstMirror = true
+							break
+						end
+					end
+				end
+			end
+		end
+	end
+	
 	-- Set edge length and faces
 	for i = 1, #edgeList do
 		local thisEdge = edgeList[i]
@@ -738,29 +767,6 @@ local function CleanVoronoiReferences(cells)
 						for h = 1, #otherCell.adjacentToBorder do
 							local otherEdge = otherCell.adjacentToBorder[h]
 							CheckAndFillEdgeAdjacency(thisEdge, otherEdge, false)
-						end
-					end
-				end
-			end
-		end
-	end
-	
-	-- Find edge mirror
-	for i = 1, #cells do
-		local thisCell = cells[i]
-		local mirrorCell = thisCell.mirror
-		if mirrorCell then
-			for j = 1, #thisCell.edges do
-				local thisEdge = thisCell.edges[j]
-				local rotLine = ApplyRotSymmetry(thisEdge[1], thisEdge[2])
-				if not thisEdge.mirror then
-					for k = 1, #mirrorCell.edges do
-						local otherEdge = mirrorCell.edges[k]
-						if SameLine(otherEdge, rotLine) then
-							thisEdge.mirror = otherEdge
-							otherEdge.mirror = thisEdge
-							thisEdge.firstMirror = true
-							break
 						end
 					end
 				end
@@ -1207,12 +1213,8 @@ local function MakeEdgeHole(tangDist, projDist, length, startWidth, endWidth, se
 		end
 	end
 	
-	local change = (1 - cos(pi*(sign*dist/2 + width/2)/width))/2
-	if change > 0.5 then
-		return false, (1 - change)
-	else
-		return change, false
-	end
+	local change = (cos(pi*dist/width) + 1)/2
+	return false, change
 end
 
 local function ApplyLineDistanceFunc(tierFlood, cellTier, otherTier, heightMod, lineStart, lineEnd, HeightFunc, startWidth, endWidth, startDist, endDist, otherClockwise, overshootStart, beyondFactor)
@@ -1365,7 +1367,8 @@ local function GenerateEdgeMeetTerrain(tierFlood, heightMod, cells, cell, edge, 
 end
 
 local function GenerateEdgeTerrain(heightMod, edge)
-	ApplyLineDistanceFunc(false, edge.soloTerrainTier, edge.soloTerrainAimTier, heightMod, edge[1], edge[2], edge.soloTerrainFunc, edge.soloTerrainWidth, edge.soloTerrainWidth, 0, 1, false, false, 1.07)
+	LineEcho(edge, "ApplyLineDistanceFunc")
+	ApplyLineDistanceFunc(false, edge.soloTerrainTier, edge.soloTerrainAimTier, heightMod, edge[1], edge[2], edge.soloTerrainFunc, edge.soloTerrainWidth, edge.soloTerrainWidth, 0, 1, false, false, 1)
 end
 
 local function ProcessEdges(cells, edges)
@@ -1510,6 +1513,10 @@ local function SetEdgeSoloTerrain(edge)
 		return
 	end
 	
+	if edge.length > 300 then
+		return
+	end
+	
 	for n = 1, 2 do
 		local nbhd = edge.neighbours[n]
 		for i = 1, #nbhd do
@@ -1520,13 +1527,19 @@ local function SetEdgeSoloTerrain(edge)
 		end
 	end
 	
+	PointEcho(GetMidpoint(edge), "SetEdgeSoloTerrain")
+	
 	edge.vehPass = false
 	edge.botPass = false
 	
+	local otherTier = edge.lowTeir + 1
+	
 	edge.soloTerrainFunc = MakeEdgeHole
-	edge.soloTerrainTier = lowTeir
-	edge.soloTerrainAimTier = lowTeir - 3
-	edge.soloTerrainWidth = 80
+	edge.soloTerrainTier = edge.lowTeir
+	edge.soloTerrainAimTier = otherTier
+	edge.soloTerrainWidth = 180
+	
+	return otherTier
 end
 
 local function MirrorEdgePassability(edge)
@@ -1548,13 +1561,14 @@ local function MirrorEdgePassability(edge)
 	mirror.soloTerrainFunc    = edge.soloTerrainFunc
 end
 
-local function GenerateEdgePassability(edgesSorted)
+local function GenerateEdgePassability(edgesSorted, tierMin, tierMax)
 	-- Set boundaries between cells of distinct tiers
 	-- Smallest to largest
 	for i = #edgesSorted, 1, -1 do
 		local thisEdge = edgesSorted[i]
 		if thisEdge.firstMirror then
 			SetEdgePassability(thisEdge)
+			MirrorEdgePassability(thisEdge)
 		end
 	end
 	
@@ -1563,19 +1577,17 @@ local function GenerateEdgePassability(edgesSorted)
 	for i = #edgesSorted, 1, -1 do
 		local thisEdge = edgesSorted[i]
 		if thisEdge.firstMirror then
-			if thisEdge.length > 300 then
-				break
+			local tierExtent = SetEdgeSoloTerrain(thisEdge)
+			MirrorEdgePassability(thisEdge)
+			
+			if tierExtent then
+				tierMin = min(tierExtent, tierMin)
+				tierMax = max(tierExtent, tierMax)
 			end
-			SetEdgeSoloTerrain(thisEdge)
 		end
 	end
 	
-	for i = 1, #edgesSorted do
-		local thisEdge = edgesSorted[i]
-		if thisEdge.firstMirror then
-			MirrorEdgePassability(thisEdge)
-		end
-	end
+	return tierMin, tierMax
 end
 
 
@@ -2147,7 +2159,7 @@ local function GetTerrainStructure()
 	
 	local startCell = SetStartAndModifyCellTiers(cells, edgesSorted, waveFunc, GetWaveHeightMult(tierMin, tierMax))
 	
-	GenerateEdgePassability(edgesSorted)
+	tierMin, tierMax = GenerateEdgePassability(edgesSorted, tierMin, tierMax)
 	
 	TimerEcho("Terrain structure complete")
 
@@ -2202,6 +2214,7 @@ function gadget:Initialize()
 	local randomSeed = GetSeed()
 	-- 45998
 	-- 44245
+	-- 23078 floodfill issue
 	math.randomseed(randomSeed)
 
 	Spring.SetGameRulesParam("typemap", "temperate")
