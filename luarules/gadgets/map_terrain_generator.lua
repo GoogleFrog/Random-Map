@@ -2119,7 +2119,7 @@ function gadget:Initialize()
 	Spring.Echo("Random Seed", randomSeed)
 	
 	local cells, edges, edgesSorted, heightMod, waveFunc, tiers, tierConst, tierHeight, tierMin, tierMax, startCell = GetTerrainStructure()
-	toDrawEdges = edges
+	--toDrawEdges = edges
 	
 	local smoothHeights = GenerateTerrainDetails(cells, edges, heightMod, waveFunc, tiers, tierConst, tierHeight, tierMin, tierMax)
 	
