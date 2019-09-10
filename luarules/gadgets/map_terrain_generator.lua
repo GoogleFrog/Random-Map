@@ -2197,11 +2197,11 @@ local function SetTreeDensity(cells)
 		local thisCell = cells[i]
 		if thisCell.firstMirror then
 			if thisCell.isMainStartPos then
-				thisCell.treeDensity = 0
+				thisCell.treeDensity = max(0, random()*0.1 - 0.6)
 			elseif thisCell.isAuxStartPos then
-				thisCell.treeDensity = max(0, random()*0.1)
-			elseif random() < 0.7 then
-				thisCell.treeDensity = 0.1 + ((random() < 0.15 and (0.6 + 0.3*random())) or 0)
+				thisCell.treeDensity = max(0, random()*0.1 - 0.2)
+			elseif random() < 0.95 then
+				thisCell.treeDensity = 0.15 + ((random() < 0.15 and (0.6 + 0.3*random())) or 0)
 			else
 				thisCell.treeDensity = 0
 			end
