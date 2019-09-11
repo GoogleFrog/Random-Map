@@ -337,15 +337,45 @@ local function GetPointCell(point, cells)
 	return closeIndex, closeDistSq
 end
 
-local function GetRandomPoint(avoidDist, avoidPoints, maxAttempts, useOtherSize)
-	local point = {random()*MAP_X, random()*MAP_Z}
+local function RandomWithCornerBias(edgeBias)
+	if (edgeBias or 1) == 1 then
+		return random()
+	end
+	local base = random()
+	local sign = (base > 0.5 and 1) or -1
+	local val = abs(base - 0.5)*2
+	return 0.5 + 0.5*sign*(1 - val^edgeBias)
+end
+
+local function GetRandomCoordWithEdgeBias(edgeBias)
+	if (edgeBias or 1) == 1 then
+		return {random()*MAP_X, random()*MAP_Z}
+	end
+	
+	local distToEdge = 0.5*(1 - sqrt(random()))^edgeBias
+	local sideLength = 1 - 2*distToEdge
+	local pos = random()
+	
+	if pos < 0.25 then
+		return {(distToEdge + sideLength*random())*MAP_X, distToEdge*MAP_Z}
+	elseif pos < 0.5 then
+		return {distToEdge*MAP_X, (distToEdge + sideLength*random())*MAP_Z}
+	elseif pos < 0.75 then
+		return {(distToEdge + sideLength*random())*MAP_X, (sideLength + distToEdge)*MAP_Z}
+	else
+		return {(sideLength + distToEdge)*MAP_X, (distToEdge + sideLength*random())*MAP_Z}
+	end
+end
+
+local function GetRandomMapCoord(avoidDist, avoidPoints, maxAttempts, useOtherSize, edgeBias)
+	local point = GetRandomCoordWithEdgeBias(edgeBias)
 	if not avoidDist then
 		return point
 	end
 	
 	local attempts = 1
 	while (select(2, GetClosestPoint(point, avoidPoints, useOtherSize)) or 0) < avoidDist do
-		point = {random()*MAP_X, random()*MAP_Z}
+		point = GetRandomCoordWithEdgeBias(edgeBias)
 		attempts = attempts + 1
 		if attempts > maxAttempts then
 			break
@@ -356,7 +386,7 @@ local function GetRandomPoint(avoidDist, avoidPoints, maxAttempts, useOtherSize)
 end
 
 local function GetRandomPointInCircle(pos, radius, edgeBuffer)
-	local randomPos = Add(pos, Mult(radius*random()^2, GetRandomDir()))
+	local randomPos = Add(pos, Mult(radius*sqrt(random()), GetRandomDir()))
 	if not edgeBuffer then
 		return randomPos
 	end
@@ -491,7 +521,7 @@ local MAP_BORDER = {
 	{{MAP_X, -10*MAP_Z}, {MAP_X, 10*MAP_Z}},
 }
 
-local END_FLATTENING = 1.08
+local END_FLATTENING = 1.06
 local POINT_COUNT = 11
 local CIRCLE_POINTS = {}
 for i = pi, pi*3/2 + pi/(4*POINT_COUNT), pi/(2*POINT_COUNT) do
@@ -792,6 +822,19 @@ local function CleanVoronoiReferences(cells)
 		end
 	end
 	
+	-- Find edges that outline the non-border cells
+	for i = 1, #edgeList do
+		local thisEdge = edgeList[i]
+		if thisEdge.faces[2] and thisEdge.faces[1].adjacentToBorder ~= thisEdge.faces[2].adjacentToBorder then
+			thisEdge.innerBorderEdge = true
+			if thisEdge.faces[1].adjacentToBorder then
+				thisEdge.faces[2].innerBorderEdges = (thisEdge.faces[2].innerBorderEdges or 0) + 1
+			else
+				thisEdge.faces[1].innerBorderEdges = (thisEdge.faces[1].innerBorderEdges or 0) + 1
+			end
+		end
+	end
+	
 	-- Some useful cell parameters.
 	for i = 1, #cells do
 		local thisCell = cells[i]
@@ -804,11 +847,11 @@ local function CleanVoronoiReferences(cells)
 	return cells, edgeList
 end
 
-local function MakeRandomPoints(pointNum, minSpacing, maxSpacing)
+local function MakeRandomPoints(pointNum, minSpacing, maxSpacing, edgeBias)
 	local points = {}
 	local avoidDist = maxSpacing
 	for i = 1, pointNum do
-		local point = GetRandomPoint(avoidDist, points, 50, true)
+		local point = GetRandomMapCoord(avoidDist, points, 50, true, edgeBias)
 		local pointMirror = ApplyRotSymmetry(point)
 		
 		point.size = avoidDist
@@ -825,8 +868,8 @@ local function MakeRandomPoints(pointNum, minSpacing, maxSpacing)
 	return points
 end
 
-local function GetVoronoi(pointNum, minSpacing, maxSpacing)
-	local points = MakeRandomPoints(pointNum, minSpacing, maxSpacing)
+local function GetVoronoi(params)
+	local points = MakeRandomPoints(params.points, params.minSpace, params.maxSpace, params.edgeBias)
 	
 	local cells, edges, badSite = CleanVoronoiReferences(BoundExtendedVoronoiToMapEdge(GenerateVoronoiCells(points)))
 	while (not cells) or badSite do
@@ -850,7 +893,7 @@ local function GetVoronoi(pointNum, minSpacing, maxSpacing)
 				end
 			end
 		else
-			points = MakeRandomPoints(pointNum, minSpacing, maxSpacing)
+			points = MakeRandomPoints(params.points, params.minSpace, params.maxSpace, params.edgeBias)
 		end
 		cells, edges, badSite = CleanVoronoiReferences(BoundExtendedVoronoiToMapEdge(GenerateVoronoiCells(points)))
 	end
@@ -943,18 +986,18 @@ local function GetRotationalWave(params)
 	return GetWave(false, params)
 end
 
-local function GetTerrainWaveFunction()
+local function GetTerrainWaveFunction(params)
 	local multParams = {
-		scaleMin = 0.3,
+		scaleMin = 0.3 + 0.4*params.generalWaveMod,
 		scaleMax = 0.8,
 		periodMin = 2000,
-		periodMax = 5000,
+		periodMax = 5000 - 1500*params.generalWaveMod,
 		spreadMin = 200,
 		spreadMax = 900,
 		offsetMin = -0.2,
 		offsetMax = 0.2,
 		growthMin = 0.15,
-		growthMax = 0.2,
+		growthMax = 0.2 + 0.2*params.generalWaveMod,
 		wavePeriodMin = 1000,
 		wavePeriodMax = 2600,
 		waveRotationsMin = 1,
@@ -963,9 +1006,9 @@ local function GetTerrainWaveFunction()
 		spreadScaleMax = 0.4,
 	}
 	
-	local params = {
-		scaleMin = 30,
-		scaleMax = 60,
+	local translateParams = {
+		scaleMin = 30 + 20*params.generalWaveMod,
+		scaleMax = 60 + 20*params.generalWaveMod,
 		periodMin = 1800,
 		periodMax = 3000,
 		spreadMin = 20,
@@ -983,8 +1026,8 @@ local function GetTerrainWaveFunction()
 	}
 	
 	local rotParams = {
-		scaleMin = 30,
-		scaleMax = 60,
+		scaleMin = 30 + 20*params.generalWaveMod,
+		scaleMax = 60 + 20*params.generalWaveMod,
 		periodMin = 1800,
 		periodMax = 4000,
 		spreadMin = 60,
@@ -1000,8 +1043,8 @@ local function GetTerrainWaveFunction()
 	}
 
 	local bigMultParams = {
-		scaleMin = 0.7,
-		scaleMax = 1,
+		scaleMin = 0.7 + 0.2*params.generalWaveMod,
+		scaleMax = 1 + 0.2*params.generalWaveMod,
 		periodMin = 18000,
 		periodMax = 45000,
 		spreadMin = 2000,
@@ -1020,19 +1063,19 @@ local function GetTerrainWaveFunction()
 	local transMult = GetTranslationalWave(multParams)
 
 	local rot = GetRotationalWave(rotParams)
-	local trans = GetTranslationalWave(params)
-	params.periodMin = params.periodMin*1.6
-	params.periodMax = params.periodMax*1.6
+	local trans = GetTranslationalWave(translateParams)
+	translateParams.periodMin = translateParams.periodMin*1.6
+	translateParams.periodMax = translateParams.periodMax*1.6
 	
-	local trans2 = GetTranslationalWave(params)
+	local trans2 = GetTranslationalWave(translateParams)
 	local transMult2 = GetTranslationalWave(multParams)
-	params.periodMin = params.periodMin*1.6
-	params.periodMax = params.periodMax*1.6
+	translateParams.periodMin = translateParams.periodMin*1.6
+	translateParams.periodMax = translateParams.periodMax*1.6
 	
-	local trans3 = GetTranslationalWave(params)
+	local trans3 = GetTranslationalWave(translateParams)
 	local rotMult3 = GetRotationalWave(multParams)
-	params.periodMin = params.periodMin*1.6
-	params.periodMax = params.periodMax*1.6
+	translateParams.periodMin = translateParams.periodMin*1.6
+	translateParams.periodMax = translateParams.periodMax*1.6
 	
 	local bigMult = GetTranslationalWave(bigMultParams)
 	
@@ -1448,7 +1491,7 @@ end
 --------------------------------------------------------------------------------
 -- Generate edge and cell structures
 
-local function GenerateCellTiers(cells, waveFunc)
+local function GenerateCellTiers(params, cells, waveFunc)
 	local averageheight = 0
 	for i = 1, #cells do
 		local height = waveFunc(cells[i].site[1], cells[i].site[2])
@@ -1465,17 +1508,21 @@ local function GenerateCellTiers(cells, waveFunc)
 	
 	local waterFator = 0.2 + 0.8*random()
 	
-	local bucketWidth = 65 + std*0.55
+	local bucketWidth = params.bucketBase + std*params.bucketStdMult
 	local tierHeight = 120
-	local tierConst = tierHeight + 45
+	local tierConst = tierHeight + params.tierConst
 	local tierMin, tierMax = 1000, -1000
 	
-	local heightOffset = -0.8*averageheight
+	local heightOffset = -1*params.heightOffsetFactor*averageheight
 	
 	for i = 1, #cells do
 		local cell = cells[i]
 		local height = waveFunc(cell.site[1], cell.site[2])
 		local tier = math.floor((height + heightOffset + bucketWidth*waterFator)/bucketWidth)
+		
+		if cell.adjacentToBorder and params.mapBorderTier then
+			tier = params.mapBorderTier
+		end
 		
 		cell.tier = tier
 		cell.height = tier*tierHeight + tierConst
@@ -1491,10 +1538,7 @@ local function GenerateCellTiers(cells, waveFunc)
 	return tierConst, tierHeight, tierMin, tierMax
 end
 
-local CLIFF_WIDTH = 20
-local RAMP_WIDTH  = 360
-
-local function SetEdgePassability(edge)
+local function SetEdgePassability(params, edge)
 	edge.teirDiff = (edge.faces and (#edge.faces == 2) and abs(edge.faces[1].tier - edge.faces[2].tier)) or 0
 	edge.highTeir = edge.faces and (#edge.faces == 2) and max(edge.faces[1].tier, edge.faces[2].tier)
 	edge.lowTeir = edge.faces and (#edge.faces == 2) and min(edge.faces[1].tier, edge.faces[2].tier)
@@ -1526,27 +1570,29 @@ local function SetEdgePassability(edge)
 		end
 	end
 	
-	if edge.length < 600 and ((impassCount == 0) or (matchCount - impassCount == 0)) then
-		edge.terrainWidth = ((impassCount == 0) and RAMP_WIDTH) or CLIFF_WIDTH
+	if edge.lowTeir < -1 and edge.highTeir >= -1 and edge.teirDiff >= 2 then
+		edge.terrainWidth = ((0.85 < random()) and params.rampWidth) or params.cliffWidth
+	elseif edge.length < 600 and ((impassCount == 0) or (matchCount - impassCount == 0)) then
+		edge.terrainWidth = ((impassCount == 0) and params.rampWidth) or params.cliffWidth
 	else
-		edge.terrainWidth = ((random() > 0.35) and RAMP_WIDTH) or CLIFF_WIDTH
+		edge.terrainWidth = ((0.35 < random()) and params.rampWidth) or params.cliffWidth
 	end
 	
 	--local onStartCell = edge.faces[1].isStartPos or (edge.faces[2] and edge.faces[2].isStartPos)
 	
-	if edge.teirDiff >= 2 and edge.teirDiff <= 3 and edge.terrainWidth >= RAMP_WIDTH and (random() > 0.5) then
+	if edge.teirDiff >= 2 and edge.teirDiff <= 3 and edge.terrainWidth >= params.rampWidth and (random() > 0.5) then
 		edge.terrainWidth = edge.terrainWidth*edge.teirDiff*1.4
 	end
 	
-	if edge.terrainWidth <= CLIFF_WIDTH then
+	if edge.terrainWidth <= params.cliffWidth then
 		edge.cliffEdge = true
 		edge.terrainWidth = edge.terrainWidth*edge.teirDiff
 	end
 	
-	if (edge.terrainWidth/edge.teirDiff <= CLIFF_WIDTH) or (edge.teirDiff > 3) then
+	if (edge.terrainWidth/edge.teirDiff <= params.cliffWidth) or (edge.teirDiff > 3) then
 		edge.vehPass = false
 		edge.botPass = false
-	elseif (edge.terrainWidth/edge.teirDiff >= RAMP_WIDTH) then
+	elseif (edge.terrainWidth/edge.teirDiff >= params.rampWidth) then
 		edge.vehPass = true
 		edge.botPass = true
 	else
@@ -1556,7 +1602,7 @@ local function SetEdgePassability(edge)
 	
 end
 
-local function SetEdgeSoloTerrain(edge)
+local function SetEdgeSoloTerrain(params, edge)
 	if edge.teirDiff > 1 then
 		return
 	end
@@ -1567,18 +1613,27 @@ local function SetEdgeSoloTerrain(edge)
 		return
 	end
 	
+	if not params.borderIgloos then
+		if #edge.faces == 1 then
+			return
+		end
+		if edge.faces[1].adjacentToBorder and edge.faces[2].adjacentToBorder then
+			return
+		end
+	end
+	
 	local nonFlatNeighbours = 0
-	local thresholdLength = 400
+	local thresholdLength = params.flatNeighbourIgloo
 	local nearCliff = false
 	for n = 1, 2 do
 		local nbhd = edge.neighbours[n]
 		for i = 1, #nbhd do
 			local otherEdge = nbhd[i]
 			if otherEdge.teirDiff > 1 then
-				thresholdLength = 120
+				thresholdLength = params.highDiffNeighbourIgloo
 				nonFlatNeighbours = nonFlatNeighbours + 1
 			elseif otherEdge.teirDiff > 0 then
-				thresholdLength = 220
+				thresholdLength = params.lowDiffNeighbourIgloo
 				nonFlatNeighbours = nonFlatNeighbours + 1
 			end
 			
@@ -1591,8 +1646,6 @@ local function SetEdgeSoloTerrain(edge)
 	if nearCliff and #edge.faces == 1 then
 		return
 	end
-	
-	
 	
 	local fullyFlat = (nonFlatNeighbours == 0 and edge.teirDiff == 0)
 	if edge.teirDiff > 0 then
@@ -1608,8 +1661,9 @@ local function SetEdgeSoloTerrain(edge)
 		effectMult = effectMultOffset + (1 - effectMultOffset)*(edge.length - thresholdLength)/thresholdLength
 	end
 	
-	edge.vehPass = false
-	edge.botPass = false
+	-- TODO detect this.
+	--edge.vehPass = false
+	--edge.botPass = false
 	
 	local otherTier = edge.lowTeir + 1
 	
@@ -1668,13 +1722,13 @@ local function MirrorEdgePassability(edge)
 	mirror.soloTerrainParams     = edge.soloTerrainParams
 end
 
-local function GenerateEdgePassability(edgesSorted, tierMin, tierMax)
+local function GenerateEdgePassability(params, edgesSorted, tierMin, tierMax)
 	-- Set boundaries between cells of distinct tiers
 	-- Smallest to largest
 	for i = #edgesSorted, 1, -1 do
 		local thisEdge = edgesSorted[i]
 		if thisEdge.firstMirror then
-			SetEdgePassability(thisEdge)
+			SetEdgePassability(params, thisEdge)
 			MirrorEdgePassability(thisEdge)
 		end
 	end
@@ -1684,7 +1738,7 @@ local function GenerateEdgePassability(edgesSorted, tierMin, tierMax)
 	for i = #edgesSorted, 1, -1 do
 		local thisEdge = edgesSorted[i]
 		if thisEdge.firstMirror then
-			local tierExtent = SetEdgeSoloTerrain(thisEdge)
+			local tierExtent = SetEdgeSoloTerrain(params, thisEdge)
 			MirrorEdgePassability(thisEdge)
 			
 			if tierExtent then
@@ -1825,30 +1879,30 @@ local function SetStartAndModifyCellTiers(cells, edgesSorted, waveFunc, waveMult
 	local startCell
 	local startEdge
 	local maxSizeValue
-	local eligibleCells = {}
 
 	for i = 1, #edgesSorted do
 		local thisEdge = edgesSorted[i]
 		if #thisEdge.faces == 1 then
 			local thisCell = thisEdge.faces[1]
-			if thisCell.firstMirror and (thisCell.tier >= -1) and (not thisCell.adjacentToCorner) then
+			if thisCell.firstMirror then
 				if not startCell then
 					-- Fallback in case none are found
 					startCell = thisEdge.faces[1]
 					startEdge = thisEdge
 				end
-				
-				local heightDiff, cheapDeviation = EstimateHeightDiff(thisCell.averageMid, 700, waveFunc, waveMult)
-				local flatness = heightDiff*cheapDeviation
-				if flatness < acceptableFlatness then
-					local cellSizeValue = thisCell.area * thisEdge.length
-					if flatness > idealFlatness then
-						cellSizeValue = cellSizeValue*(1 - (flatness - idealFlatness)/(acceptableFlatness - idealFlatness))
-					end
-					if (not maxSizeValue) or (cellSizeValue > maxSizeValue) then
-						startCell = thisEdge.faces[1]
-						startEdge = thisEdge
-						maxSizeValue = cellSizeValue
+				if (thisCell.tier >= -1) and (not thisCell.adjacentToCorner) then
+					local heightDiff, cheapDeviation = EstimateHeightDiff(thisCell.averageMid, 700, waveFunc, waveMult)
+					local flatness = heightDiff*cheapDeviation
+					if flatness < acceptableFlatness then
+						local cellSizeValue = thisCell.area * thisEdge.length
+						if flatness > idealFlatness then
+							cellSizeValue = cellSizeValue*(1 - (flatness - idealFlatness)/(acceptableFlatness - idealFlatness))
+						end
+						if (not maxSizeValue) or (cellSizeValue > maxSizeValue) then
+							startCell = thisEdge.faces[1]
+							startEdge = thisEdge
+							maxSizeValue = cellSizeValue
+						end
 					end
 				end
 			end
@@ -1913,6 +1967,51 @@ local function SetStartAndModifyCellTiers(cells, edgesSorted, waveFunc, waveMult
 			thisCell.mirror.tier = thisCell.tier
 		end
 	end
+	
+	return startCell
+end
+
+local function SetIslandStart(cells, edgesSorted, waveFunc, waveMult)
+	local idealFlatness = 75
+	local acceptableFlatness = 200
+	
+	local startCell
+	local maxSizeValue
+
+	for i = 1, #edgesSorted do
+		local thisEdge = edgesSorted[i]
+		if thisEdge.innerBorderEdge then
+			local thisCell = thisEdge.faces[1]
+			if thisCell.firstMirror then
+				if not startCell then
+					-- Fallback in case none are found
+					startCell = thisEdge.faces[1]
+				end
+				if (thisCell.tier >= -1) then
+					local heightDiff, cheapDeviation = EstimateHeightDiff(thisCell.averageMid, 700, waveFunc, waveMult)
+					local flatness = heightDiff*cheapDeviation
+					if flatness < acceptableFlatness then
+						local cellSizeValue = thisCell.area * thisEdge.length
+						if flatness > idealFlatness then
+							cellSizeValue = cellSizeValue*(1 - (flatness - idealFlatness)/(acceptableFlatness - idealFlatness))
+						end
+						if (not maxSizeValue) or (cellSizeValue > maxSizeValue) then
+							startCell = thisEdge.faces[1]
+							maxSizeValue = cellSizeValue
+						end
+					end
+				end
+			end
+		end
+	end
+	
+	SetStartboxDataFromPolygon(startCell.vertices)
+	
+	-- Set start cell parameters
+	startCell.isMainStartPos = true
+	startCell.isStartPos = true
+	startCell.mirror.isMainStartPos = startCell.isMainStartPos
+	startCell.mirror.isStartPos = startCell.isStartPos
 	
 	return startCell
 end
@@ -2003,37 +2102,17 @@ local function GetRandomMexPos(mexes, edges, pos, megaMex, placeRadius, maxRadiu
 	return false
 end
 
-local function PlaceMex(mexes, edges, pos, megaMex)
-	local mexPos = GetRandomMexPos(mexes, edges, pos, megaMex, (megaMex and 50) or 450, (megaMex and 300) or 450)
-	if not mexPos then
-		return
-	end
-	local mirrorMexPos = ApplyRotSymmetry(mexPos)
-	local mexValue = ((megaMex and 4) or 2)
-	
-	if Dist(mexPos, mirrorMexPos) > 120 then
-		mexes[#mexes + 1] = mexPos
-		mexes[#mexes + 1] = mirrorMexPos
-		
-		GG.mapgen_mexList = GG.mapgen_mexList or {}
-		GG.mapgen_mexList[#GG.mapgen_mexList + 1] = {x = mexPos[1], z = mexPos[2], metal = mexValue}
-		GG.mapgen_mexList[#GG.mapgen_mexList + 1] = {x = mirrorMexPos[1], z = mirrorMexPos[2], metal = mexValue}
-	else
-		mexPos = {MID_X, MID_Z}
-		mexes[#mexes + 1] = mexPos
-		GG.mapgen_mexList = GG.mapgen_mexList or {}
-		GG.mapgen_mexList[#GG.mapgen_mexList + 1] = {x = mexPos[1], z = mexPos[2], metal = mexValue}
-	end
-end
-
 local function ReduceMexAllocation(cell, totalMexAlloc, allocFactor)
 	cell = (cell.firstMirror and cell) or cell.mirror
-	local allocChange = (cell.mexAlloc or 0)*(1 - allocFactor)
-	cell.mexAlloc = cell.mexAlloc and (cell.mexAlloc - allocChange)
+	if not cell.mexAlloc then
+		return totalMexAlloc
+	end
+	local allocChange = cell.mexAlloc*(1 - allocFactor)
+	cell.mexAlloc = cell.mexAlloc - allocChange
 	return totalMexAlloc - allocChange
 end
 
-local function PlaceMetalSpots(cells, edges, startCell)
+local function AllocateMetalSpots(cells, edges, startCell)
 	GetPathDistances(cells, startCell, "landBotDist", false, true, true)
 	GetStraightDistances(cells, startCell, "straightDist")
 	local minPathDiff, maxPathDiff
@@ -2085,7 +2164,6 @@ local function PlaceMetalSpots(cells, edges, startCell)
 	
 	local isTeamGame = Spring.Utilities.Gametype and Spring.Utilities.Gametype.isTeams and Spring.Utilities.Gametype.isTeams()
 	local isBigTeamGame = Spring.Utilities.Gametype and Spring.Utilities.Gametype.isTeams and Spring.Utilities.Gametype.isBigTeams()
-	--isTeamGame, isBigTeamGame = true, false
 	
 	local totalMexAlloc = 0
 	for i = 1, #cells do
@@ -2119,11 +2197,11 @@ local function PlaceMetalSpots(cells, edges, startCell)
 				if thisCell.adjacentToCorner then
 					thisCell.mexAlloc = thisCell.mexAlloc + 0.35
 				end
-				if thisCell.unreachable then
-					thisCell.mexAlloc = thisCell.mexAlloc*0.15
+				if thisCell.unreachable and thisCell.adjacentToBorder then
+					thisCell.mexAlloc = thisCell.mexAlloc*0.02
 				end
 				
-				thisCell.mexAlloc = max(0, thisCell.mexAlloc)
+				thisCell.mexAlloc = max(0, thisCell.mexAlloc or 0)
 				totalMexAlloc = totalMexAlloc + thisCell.mexAlloc
 			end
 			
@@ -2139,11 +2217,14 @@ local function PlaceMetalSpots(cells, edges, startCell)
 		local randAllocateSum = random()*totalMexAlloc
 		for i = 1, #cells do
 			local thisCell = cells[i]
-			if thisCell.mexAlloc and (randAllocateSum < thisCell.mexAlloc) then
-				mexCell = thisCell
-				break
-			else
-				randAllocateSum = randAllocateSum - (thisCell.mexAlloc or 0)
+			if thisCell.firstMirror then
+				if thisCell.mexAlloc and (randAllocateSum < thisCell.mexAlloc) then
+					mexCell = thisCell
+					PointEcho(thisCell.site, "Cell picked: " .. thisCell.mexAlloc)
+					break
+				else
+					randAllocateSum = randAllocateSum - (thisCell.mexAlloc or 0)
+				end
 			end
 		end
 		
@@ -2162,7 +2243,7 @@ local function PlaceMetalSpots(cells, edges, startCell)
 		end
 		
 		totalMexAlloc = ReduceMexAllocation(mexCell, totalMexAlloc, 0)
-		local neighbourFactor = (((mexAssignment == 2) and 0.01) or 0.25)
+		local neighbourFactor = (((mexAssignment == 2) and 0.02) or 0.25)
 		for i = 1, #mexCell.neighbours do
 			totalMexAlloc = ReduceMexAllocation(mexCell.neighbours[i], totalMexAlloc, neighbourFactor)
 		end
@@ -2171,6 +2252,38 @@ local function PlaceMetalSpots(cells, edges, startCell)
 		mexSpots = mexSpots - mexAssignment
 	end
 	
+	--for i = 1, #cells do
+	--	local thisCell = cells[i]
+	--	local text = (thisCell.landBotDist or "NONE") .. ", " .. (thisCell.mirror.landBotDist or "NONE")
+	--	PointEcho(thisCell.averageMid, "Dist: " .. text .. (((thisCell.unreachable or thisCell.mirror.unreachable) and ", UNREACHABLE") or ""))
+	--end
+end
+
+local function PlaceMex(mexes, edges, pos, megaMex)
+	local mexPos = GetRandomMexPos(mexes, edges, pos, megaMex, (megaMex and 50) or 450, (megaMex and 300) or 450)
+	if not mexPos then
+		return
+	end
+	local mirrorMexPos = ApplyRotSymmetry(mexPos)
+	local mexValue = ((megaMex and 4) or 2)
+	
+	if Dist(mexPos, mirrorMexPos) > 120 then
+		GG.mapgen_mexList = GG.mapgen_mexList or {}
+		
+		mexes[#mexes + 1] = mexPos
+		mexes[#mexes + 1] = mirrorMexPos
+		
+		GG.mapgen_mexList[#GG.mapgen_mexList + 1] = {x = mexPos[1], z = mexPos[2], metal = mexValue}
+		GG.mapgen_mexList[#GG.mapgen_mexList + 1] = {x = mirrorMexPos[1], z = mirrorMexPos[2], metal = mexValue}
+	else
+		mexPos = {MID_X, MID_Z}
+		mexes[#mexes + 1] = mexPos
+		GG.mapgen_mexList = GG.mapgen_mexList or {}
+		GG.mapgen_mexList[#GG.mapgen_mexList + 1] = {x = mexPos[1], z = mexPos[2], metal = mexValue}
+	end
+end
+
+local function PlaceMetalSpots(cells)
 	local mexes = {}
 	for i = 1, #cells do
 		local thisCell = cells[i]
@@ -2249,41 +2362,37 @@ local function GetSeed()
 	return random(1, 100000)
 end
 
-local function TerrainStructureTestRun()
-	local waveFunc = GetTerrainWaveFunction()
-	local cells, edges = GetVoronoi(18, 400, 500)
-	local tierConst, tierHeight, tierMin, tierMax = GenerateCellTiers(cells, waveFunc)
-end
-
 local function GetWaveHeightMult(tierMin, tierMax)
 	local tierDiff = (tierMax - tierMin)
 	local waveMult = 0.8/(tierDiff + 1.5)
 	return waveMult
 end
 
-local function GetTerrainStructure(pointNum, minSpacing, maxSpacing)
-	local waveFunc = GetTerrainWaveFunction()
+local function GetTerrainStructure(params)
+	local waveFunc = GetTerrainWaveFunction(params)
 	--TerraformByFunc(waveFunc)
 	TimerEcho("Wave generation complete")
 	
-	local cells, edges = GetVoronoi(pointNum, minSpacing, maxSpacing)
+	local cells, edges = GetVoronoi(params)
 	TimerEcho("Voronoi generation complete")
 	
 	local edgesSorted = Spring.Utilities.CopyTable(edges, false)
 	table.sort(edgesSorted, CompareLength)
 	
-	local tierConst, tierHeight, tierMin, tierMax = GenerateCellTiers(cells, waveFunc)
+	local tierConst, tierHeight, tierMin, tierMax = GenerateCellTiers(params, cells, waveFunc)
 	
-	local startCell = SetStartAndModifyCellTiers(cells, edgesSorted, waveFunc, GetWaveHeightMult(tierMin, tierMax))
+	local startCell = params.StartPositionFunc(cells, edgesSorted, waveFunc, GetWaveHeightMult(tierMin, tierMax))
 	
-	tierMin, tierMax = GenerateEdgePassability(edgesSorted, tierMin, tierMax)
+	tierMin, tierMax = GenerateEdgePassability(params, edgesSorted, tierMin, tierMax)
+	AllocateMetalSpots(cells, edges, startCell)
+	SetTreeDensity(cells)
 	
 	TimerEcho("Terrain structure complete")
 
 	return cells, edges, edgesSorted, heightMod, waveFunc, tiers, tierConst, tierHeight, tierMin, tierMax, startCell
 end
 
-local function GenerateTerrainDetails(cells, edges, heightMod, waveFunc, tiers, tierConst, tierHeight, tierMin, tierMax)
+local function MakeHeightmap(cells, edges, heightMod, waveFunc, tiers, tierConst, tierHeight, tierMin, tierMax)
 	local tierFlood, heightMod, waveMod = ProcessEdges(cells, edges)
 	TimerEcho("Edge processing complete")
 	
@@ -2327,21 +2436,68 @@ end
 local toDrawEdges = nil
 local waitCount = 0
 
-local oldVoronoiParams = {
+local oldParams = {
 	points = 18,
 	minSpace = 400,
 	maxSpace = 500,
+	edgeBias = 1,
+	flatNeighbourIgloo = 400,
+	lowDiffNeighbourIgloo = 220,
+	highDiffNeighbourIgloo = 120,
+	cliffWidth = 20,
+	rampWidth  = 360,
+	generalWaveMod = 0,
+	bucketBase = 65,
+	bucketStdMult = 0.55,
+	tierConst = 45,
+	heightOffsetFactor = 0.8,
+	mapBorderTier = false,
+	StartPositionFunc = SetStartAndModifyCellTiers,
+	borderIgloos = true,
 }
 
-local newVoronoiParams = {
-	points = 30,
-	minSpace = 200,
-	maxSpace = 300,
+local newParams = {
+	points = 22,
+	minSpace = 450,
+	maxSpace = 600,
+	edgeBias = 1.4,
+	flatNeighbourIgloo = 560,
+	lowDiffNeighbourIgloo = 380,
+	highDiffNeighbourIgloo = 200,
+	cliffWidth = 20,
+	rampWidth  = 360,
+	generalWaveMod = 0,
+	bucketBase = 65,
+	bucketStdMult = 0.55,
+	tierConst = 45,
+	heightOffsetFactor = 0.8,
+	mapBorderTier = false,
+	StartPositionFunc = SetStartAndModifyCellTiers,
+	borderIgloos = true,
+}
+
+local islandParams = {
+	points = 24,
+	minSpace = 250,
+	maxSpace = 400,
+	edgeBias = 1.5,
+	flatNeighbourIgloo = 560,
+	lowDiffNeighbourIgloo = 380,
+	highDiffNeighbourIgloo = 200,
+	cliffWidth = 20,
+	rampWidth  = 360,
+	generalWaveMod = 0,
+	bucketBase = 35,
+	bucketStdMult = 0.25,
+	tierConst = 25,
+	heightOffsetFactor = 1,
+	mapBorderTier = -2,
+	StartPositionFunc = SetIslandStart,
+	borderIgloos = false,
 }
 
 function gadget:Initialize()
-	local params = oldVoronoiParams
-
+	local params = islandParams
 	local randomSeed = GetSeed()
 	-- 45998
 	-- 44245
@@ -2361,12 +2517,11 @@ function gadget:Initialize()
 	TimerEcho("Map Terrain Generation")
 	Spring.Echo("Random Seed", randomSeed)
 	
-	local cells, edges, edgesSorted, heightMod, waveFunc, tiers, tierConst, tierHeight, tierMin, tierMax, startCell = GetTerrainStructure(params.points, params.minSpace, params.maxSpace)
-	--toDrawEdges = edges
+	local cells, edges, edgesSorted, heightMod, waveFunc, tiers, tierConst, tierHeight, tierMin, tierMax, startCell = GetTerrainStructure(params)
+	toDrawEdges = edges
 	
-	local smoothHeights = GenerateTerrainDetails(cells, edges, heightMod, waveFunc, tiers, tierConst, tierHeight, tierMin, tierMax)
+	local smoothHeights = MakeHeightmap(cells, edges, heightMod, waveFunc, tiers, tierConst, tierHeight, tierMin, tierMax)
 	
-	SetTreeDensity(cells)
 	ApplyTreeDensity(cells)
 	PlaceMetalSpots(cells, edges, startCell)
 	
@@ -2383,6 +2538,13 @@ function gadget:GameFrame()
 		return
 	end
 	
+	--local middle = {MID_X, MID_Z}
+	--for i = 1, 1000 do
+	--	local point = GetRandomCoordWithEdgeBias(2)
+	--	--local point = GetRandomPointInCircle(middle, 2000, 10)
+	--	--PointEcho(point, "X")
+	--end
+
 	for i = 1, #toDrawEdges do
 		local edge = toDrawEdges[i]
 		LineDraw(edge)
