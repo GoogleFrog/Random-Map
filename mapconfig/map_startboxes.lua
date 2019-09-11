@@ -42,7 +42,8 @@ for i = 1, #GG.mapgen_startBoxes do
 	aveX, aveZ = aveX/#coords, aveZ/#coords
 	local nameLong, nameShort = GetStartboxName(aveX/Game.mapSizeX, aveZ/Game.mapSizeZ)
 	
-	startBoxes[#startBoxes + 1] = {
+	-- boxes, like allyteams, count from 0
+	startBoxes[i - 1] = {
 		boxes = {
 			coords
 		},
