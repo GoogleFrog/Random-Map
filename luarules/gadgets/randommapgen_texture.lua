@@ -190,20 +190,25 @@ local function SetMapTexture(texturePool, mapTexX, mapTexZ, topTexX, topTexZ, to
 		local loopCount = 0
 		glColor(1, 1, 1, 1)
 		local ago = Spring.GetTimer()
-		for i = 1, #texturePool do
-			local texX = mapTexX[i]
-			local texZ = mapTexZ[i]
-			if texX then
-				glTexture(texturePool[i].texture)
-				for j = 1, #texX do
-					local heightMult = 0.15*(mapHeight[texX[j]][texZ[j]]/400) + 0.85
-					glColor(1, 1, 1, heightMult)
-					glRenderToTexture(topFullTex, DrawTexBlock, texX[j], texZ[j])
-					loopCount = RateCheck(loopCount, texturePool[i].texture)
+		
+		glRenderToTexture(topFullTex, function ()
+			for i = 1, #texturePool do
+				local texX = mapTexX[i]
+				local texZ = mapTexZ[i]
+				if texX then
+					glTexture(texturePool[i].texture)
+					for j = 1, #texX do
+						local heightMult = 0.15*(mapHeight[texX[j]][texZ[j]]/400) + 0.85
+						glColor(1, 1, 1, heightMult)
+						--glRenderToTexture(topFullTex, DrawTexBlock, texX[j], texZ[j])
+						--loopCount = RateCheck(loopCount, texturePool[i].texture)
+						glTexRect(texX[j]*MAP_FAC_X - 1, texZ[j]*MAP_FAC_Z - 1,
+							texX[j]*MAP_FAC_X + DRAW_OFFSET, texZ[j]*MAP_FAC_Z + DRAW_OFFSET)
+					end
 				end
-				Sleep()
 			end
-		end
+		end)
+		Sleep()
 		glTexture(false)
 		
 		local cur = Spring.GetTimer()

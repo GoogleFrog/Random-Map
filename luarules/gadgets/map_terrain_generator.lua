@@ -521,7 +521,7 @@ local MAP_BORDER = {
 	{{MAP_X, -10*MAP_Z}, {MAP_X, 10*MAP_Z}},
 }
 
-local END_FLATTENING = 1.06
+local END_FLATTENING = 1.04
 local POINT_COUNT = 11
 local CIRCLE_POINTS = {}
 for i = pi, pi*3/2 + pi/(4*POINT_COUNT), pi/(2*POINT_COUNT) do
@@ -2220,7 +2220,7 @@ local function AllocateMetalSpots(cells, edges, startCell)
 			if thisCell.firstMirror then
 				if thisCell.mexAlloc and (randAllocateSum < thisCell.mexAlloc) then
 					mexCell = thisCell
-					PointEcho(thisCell.site, "Cell picked: " .. thisCell.mexAlloc)
+					--PointEcho(thisCell.site, "Cell picked: " .. thisCell.mexAlloc)
 					break
 				else
 					randAllocateSum = randAllocateSum - (thisCell.mexAlloc or 0)
@@ -2497,7 +2497,7 @@ local islandParams = {
 }
 
 function gadget:Initialize()
-	local params = islandParams
+	local params = newParams
 	local randomSeed = GetSeed()
 	-- 45998
 	-- 44245
