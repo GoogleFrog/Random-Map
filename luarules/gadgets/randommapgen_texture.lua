@@ -209,6 +209,7 @@ local function SetMapTexture(texturePool, mapTexX, mapTexZ, topTexX, topTexZ, to
 			end
 		end)
 		Sleep()
+		Spring.ClearWatchDogTimer()
 		glTexture(false)
 		
 		local cur = Spring.GetTimer()
@@ -216,22 +217,24 @@ local function SetMapTexture(texturePool, mapTexX, mapTexZ, topTexX, topTexZ, to
 		
 		local ago = Spring.GetTimer()
 		gl.Blending(GL.SRC_ALPHA, GL.ONE_MINUS_SRC_ALPHA)
-		for i = 1, #texturePool do
-			local texX = topTexX[i]
-			local texZ = topTexZ[i]
-			local texAlpha = topTexAlpha[i]
-			if texX then
-				glTexture(texturePool[i].texture)
-				for j = 1, #texX do
-					if texAlpha[j] > 0.01 then
-						glColor(1, 1, 1, texAlpha[j])
-						glRenderToTexture(topFullTex, DrawTexBlock, texX[j], texZ[j])
-						loopCount = RateCheck(loopCount, texturePool[i].texture)
+		glRenderToTexture(topFullTex, function ()
+			for i = 1, #texturePool do
+				local texX = topTexX[i]
+				local texZ = topTexZ[i]
+				local texAlpha = topTexAlpha[i]
+				if texX then
+					glTexture(texturePool[i].texture)
+					for j = 1, #texX do
+						if texAlpha[j] > 0.01 then
+							glColor(1, 1, 1, texAlpha[j])
+							glTexRect(texX[j]*MAP_FAC_X - 1, texZ[j]*MAP_FAC_Z - 1, texX[j]*MAP_FAC_X + DRAW_OFFSET, texZ[j]*MAP_FAC_Z + DRAW_OFFSET)
+						end
 					end
 				end
-				Sleep()
 			end
-		end
+		end)
+		Sleep()
+		Spring.ClearWatchDogTimer()
 		glColor(1, 1, 1, 1)
 		glTexture(false)
 		
@@ -240,19 +243,20 @@ local function SetMapTexture(texturePool, mapTexX, mapTexZ, topTexX, topTexZ, to
 		
 		if USE_SHADING_TEXTURE then
 			local ago2 = Spring.GetTimer()
-			for i = 1, #SPLAT_DETAIL_TEX_POOL do
-				local texX = splatTexX[i]
-				local texZ = splatTexZ[i]
-				if texX then
-					glColor(SPLAT_DETAIL_TEX_POOL[i])
-					for j = 1, #texX do
-						glRenderToTexture(topSplattex, DrawColorBlock, texX[j], texZ[j])
-						Spring.ClearWatchDogTimer()
-						loopCount = RateCheck(loopCount, false, SPLAT_DETAIL_TEX_POOL[i])
+			glRenderToTexture(topSplattex, function ()
+				for i = 1, #SPLAT_DETAIL_TEX_POOL do
+					local texX = splatTexX[i]
+					local texZ = splatTexZ[i]
+					if texX then
+						glColor(SPLAT_DETAIL_TEX_POOL[i])
+						for j = 1, #texX do
+							glRect(texX[j]*MAP_FAC_X -1, texZ[j]*MAP_FAC_Z - 1, texX[j]*MAP_FAC_X + DRAW_OFFSET, texZ[j]*MAP_FAC_Z + DRAW_OFFSET)
+						end
 					end
 				end
-				Sleep()
-			end
+			end)
+			Sleep()
+			Spring.ClearWatchDogTimer()
 			cur = Spring.GetTimer()
 			Spring.Echo("Splattex rendered in: "..(Spring.DiffTimers(cur, ago2, true)))
 			glColor(1, 1, 1, 1)
