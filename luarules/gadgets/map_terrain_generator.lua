@@ -95,6 +95,13 @@ local min    = math.min
 local max    = math.max
 local random = math.random
 
+local textureCounts = {
+	veh = 5,
+	bot = 5,
+	spider = 5,
+	uw = 4,
+}
+
 --------------------------------------------------------------------------------
 --------------------------------------------------------------------------------
 -- Heightmap manipulation
@@ -2388,9 +2395,14 @@ local function ReduceMexAllocation(cell, totalMexAlloc, allocFactor)
 	return totalMexAlloc - allocChange
 end
 
-local function AllocateMetalSpots(cells, edges, startCell)
+local function AllocateMetalSpots(cells, edges, startCell, params)
 	GetPathDistances(cells, startCell, "landBotDist", false, true, true)
 	GetStraightDistances(cells, startCell, "straightDist")
+	
+	local isTeamGame = Spring.Utilities.Gametype and Spring.Utilities.Gametype.isTeams and Spring.Utilities.Gametype.isTeams()
+	local isBigTeamGame = Spring.Utilities.Gametype and Spring.Utilities.Gametype.isTeams and Spring.Utilities.Gametype.isBigTeams()
+	local wantedMexes = params.baseMexesPerSide + floor(random()*4) + ((isTeamGame and 2) or 0) + ((isBigTeamGame and 3) or 0)
+	
 	local minPathDiff, maxPathDiff
 	local minDistSum, maxDistSum
 	local maxCellDist
@@ -2438,9 +2450,6 @@ local function AllocateMetalSpots(cells, edges, startCell)
 		maxCellDist = 6000
 	end
 	
-	local isTeamGame = Spring.Utilities.Gametype and Spring.Utilities.Gametype.isTeams and Spring.Utilities.Gametype.isTeams()
-	local isBigTeamGame = Spring.Utilities.Gametype and Spring.Utilities.Gametype.isTeams and Spring.Utilities.Gametype.isBigTeams()
-	
 	local totalMexAlloc = 0
 	for i = 1, #cells do
 		local thisCell = cells[i]
@@ -2463,6 +2472,7 @@ local function AllocateMetalSpots(cells, edges, startCell)
 			
 			if thisCell.isMainStartPos then
 				thisCell.metalSpots = 3
+				wantedMexes = wantedMexes - thisCell.metalSpots
 			else
 				thisCell.mexAlloc = thisCell.startPathFactor*1.2 + thisCell.startDistFactor*1.2 + thisCell.closeDistFactor*0.7 - 0.25
 				if diffDist and diffDist <= 1 then
@@ -2488,12 +2498,12 @@ local function AllocateMetalSpots(cells, edges, startCell)
 			
 			if isTeamGame and thisCell.isAuxStartPos then
 				thisCell.metalSpots = ((isBigTeamGame and 2) or 1)
+				wantedMexes = wantedMexes - thisCell.metalSpots
 			end
 		end
 	end
 	
-	local mexSpots = 6 + floor(random()*6) + ((isTeamGame and 1) or 0) + ((isBigTeamGame and 2) or 0)
-	while mexSpots > 0 do
+	while wantedMexes > 0 do
 		local mexCell = cells[random(1, #cells)]
 		local randAllocateSum = random()*totalMexAlloc
 		for i = 1, #cells do
@@ -2516,21 +2526,20 @@ local function AllocateMetalSpots(cells, edges, startCell)
 		end
 		
 		if (mexCell.startPathFactor == 0) and ((not mexCell.mirror) or Dist(mexCell.averageMid, mexCell.mirror.averageMid) > 1200) then
-			local megaChance = max(0.2, min(0.7, mexCell.mexAlloc*0.7))
-			if mexCell.mexAlloc and (random() < megaChance) and (not mexCell.unreachable) then
-				mexCell.megaMex = true
+			local doubleChance = max(0.2, min(0.7, mexCell.mexAlloc*0.7))
+			if mexCell.mexAlloc and (random() < doubleChance) and (not mexCell.unreachable) then
 				mexAssignment = 2
 			end
 		end
 		
 		totalMexAlloc = ReduceMexAllocation(mexCell, totalMexAlloc, 0)
-		local neighbourFactor = (((mexAssignment == 2) and 0.02) or 0.25)
+		local neighbourFactor = (((mexAssignment == 2) and 0.05) or 0.4)
 		for i = 1, #mexCell.neighbours do
 			totalMexAlloc = ReduceMexAllocation(mexCell.neighbours[i], totalMexAlloc, neighbourFactor)
 		end
 		mexCell.metalSpots = (mexCell.metalSpots or 0) + mexAssignment
 		
-		mexSpots = mexSpots - mexAssignment
+		wantedMexes = wantedMexes - mexAssignment
 	end
 	
 	for i = 1, #cells do
@@ -2665,7 +2674,7 @@ local function GetTerrainStructure(params)
 	local startCell = params.StartPositionFunc(cells, edgesSorted, waveFunc, GetWaveHeightMult(tierMin, tierMax, params), params)
 	
 	tierMin, tierMax = GenerateEdgePassability(params, edgesSorted, tierMin, tierMax)
-	AllocateMetalSpots(cells, edges, startCell)
+	AllocateMetalSpots(cells, edges, startCell, params)
 	SetTreeDensity(cells)
 	
 	EchoProgress("Terrain structure complete")
@@ -2716,8 +2725,8 @@ local newParams = {
 	flatNeighbourIgloo = 560,
 	lowDiffNeighbourIgloo = 380,
 	highDiffNeighbourIgloo = 200,
-	cliffWidth = 20,
-	rampWidth  = 300,
+	cliffWidth = 22,
+	rampWidth  = 240,
 	generalWaveMod = 0.9,
 	waveDirectMult = 0.5,
 	bucketBase = 55,
@@ -2727,15 +2736,17 @@ local newParams = {
 	mapBorderTier = false,
 	StartPositionFunc = SetStartAndModifyCellTiers_SetPoint,
 	borderIgloos = true,
+	forceFord = true,
+	baseMexesPerSide = 16,
 }
 
 local function MakeMap()
 	local params = newParams
 	local randomSeed = GetSeed()
-	--randomSeed = 28950
+	--randomSeed = 44911 -- A crash
 	math.randomseed(randomSeed)
 
-	Spring.SetGameRulesParam("typemap", "temperate")
+	Spring.SetGameRulesParam("typemap", "temperate2")
 	Spring.SetGameRulesParam("mapgen_enabled", 1)
 	
 	if DISABLE_TERRAIN_GENERATOR then

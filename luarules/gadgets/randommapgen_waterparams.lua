@@ -65,6 +65,17 @@ if gadgetHandler:IsSyncedCode() then
 				   planeColor = { 0.1,  0.1,  0.3},
 			 }
 		 	tidal = 18
+		elseif typemap == "temperate2" then
+			 params = {
+				   absorb = { 0.004,  0.003,  0.002},
+				   baseColor = { 0.4,  0.7,  0.8},
+				   minColor = { 0.1,  0.2,  0.3},
+				   -- surfaceColor = { r,  g,  b},
+				   -- diffuseColor = { r,  g,  b},
+				   -- specularColor = { r,  g,  b},
+				   planeColor = { 0.1,  0.1,  0.3},
+			 }
+		 	tidal = 18
 		elseif typemap == "desert" then
 			 params = {
 				   -- absorb = { 0.004,  0.003,  0.002},

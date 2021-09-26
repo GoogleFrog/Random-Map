@@ -36,12 +36,13 @@ local UHM_HEIGHT = 64
 local UHM_X = UHM_WIDTH/MAP_X
 local UHM_Z = UHM_HEIGHT/MAP_Z
 
-local BLOCK_SIZE  = 8
+local BLOCK_SIZE  = 4
 local DRAW_OFFSET = 2 * BLOCK_SIZE/MAP_Z - 1
 
-local VEH_NORMAL     = 0.892
-local BOT_NORMAL     = 0.585
-local SHALLOW_HEIGHT = -22
+local VEH_NORMAL      = 0.892
+local BOT_NORMAL_PLUS = 0.81
+local BOT_NORMAL      = 0.585
+local SHALLOW_HEIGHT  = -22
 
 local USE_SHADING_TEXTURE = (Spring.GetConfigInt("AdvMapShading") == 1)
 
@@ -65,6 +66,8 @@ local glRenderToTexture = gl.RenderToTexture
 local GL_RGBA = 0x1908
 local GL_RGBA16F = 0x881A
 local GL_RGBA32F = 0x8814
+
+local COLOR_TEX_LIMIT = 6
 
 local floor  = math.floor
 local random = math.random
@@ -195,13 +198,16 @@ local function SetMapTexture(texturePool, mapTexX, mapTexZ, topTexX, topTexZ, to
 			for i = 1, #texturePool do
 				local texX = mapTexX[i]
 				local texZ = mapTexZ[i]
+				if i == COLOR_TEX_LIMIT then
+					glColor(1, 1, 1, 1)
+				end
 				if texX then
 					glTexture(texturePool[i].texture)
 					for j = 1, #texX do
-						local heightMult = 0.15*(mapHeight[texX[j]][texZ[j]]/400) + 0.85
-						glColor(1, 1, 1, heightMult)
-						--glRenderToTexture(topFullTex, DrawTexBlock, texX[j], texZ[j])
-						--loopCount = RateCheck(loopCount, texturePool[i].texture)
+						if i < COLOR_TEX_LIMIT then
+							local prop = math.max(0, math.min(1, (mapHeight[texX[j]][texZ[j]] - 20)/400))
+							glColor(0.6 + 0.4*(1 - prop), 0.65 + 0.3*prop, 0.9 + 0.1*(1 - prop), 0.95 + 0.1*(1 - prop))
+						end
 						glTexRect(texX[j]*MAP_FAC_X - 1, texZ[j]*MAP_FAC_Z - 1,
 							texX[j]*MAP_FAC_X + DRAW_OFFSET, texZ[j]*MAP_FAC_Z + DRAW_OFFSET)
 					end
@@ -422,9 +428,8 @@ local function GetMainTex(height, vehiclePass, botPass, inWater)
 		end
 		return 19
 	end
-	local heightPower = 1.5^((height - 180)*0.02)
 	if vehiclePass then
-		return 1 + floor((random()^heightPower)*5)
+		return 1 + floor(random()*5)
 	end
 	if botPass then
 		return 6 + floor(random()*5)
@@ -432,40 +437,72 @@ local function GetMainTex(height, vehiclePass, botPass, inWater)
 	return random(11, 15)
 end
 
-local function GetTopTex(normal, height, vehiclePass, botPass, inWater)
-	if inWater then
+local function GetTopTex(normal, height, vehiclePass, botPassPlus, botPass, inWater)
+	if inWater and height < SHALLOW_HEIGHT then
 		if height < SHALLOW_HEIGHT then
 			return
 		end
-		local topTex = GetMainTex(height, vehiclePass, botPass, false)
-		local topAlpha = 0.7*(1 - (SHALLOW_HEIGHT - height)/SHALLOW_HEIGHT) + 0.28
-		return topTex, topAlpha
-	end
-	
-	if not botPass then
-		return
+		local prop = math.max(1, math.min(1, (height - SHALLOW_HEIGHT)/80))
+		return 16, 0.5 + 0.5*prop
 	end
 	
 	local minNorm, maxNorm, topTex
 	if vehiclePass then
-		topTex = GetMainTex(height, false, true, underWater)
+		topTex = GetMainTex(height, false, true)
 		minNorm, maxNorm = VEH_NORMAL, 1
+	elseif botPassPlus then
+		topTex = GetMainTex(height, false, true)
+		minNorm, maxNorm = BOT_NORMAL_PLUS, VEH_NORMAL
+	elseif botPass then
+		topTex = GetMainTex(height, false, false)
+		minNorm, maxNorm = BOT_NORMAL, BOT_NORMAL_PLUS
 	else
-		topTex = GetMainTex(height, false, false, underWater)
-		minNorm, maxNorm = BOT_NORMAL, VEH_NORMAL
+		topTex = 16
+		minNorm, maxNorm = 0, BOT_NORMAL
 	end
 	
 	local textureProp = (1 - (normal - minNorm)/(maxNorm - minNorm))
 	local topAlpha
 	if vehiclePass then
-		topAlpha = 0.88*textureProp
+		topAlpha = 0.95*textureProp
+	elseif botPassPlus then
+		topAlpha = textureProp
+	elseif botPass then
+		topAlpha = 0.9*textureProp*textureProp
 	else
-		topAlpha = 0.15*textureProp
+		if textureProp > 0.4 then
+			topAlpha = 0.1
+		elseif textureProp > 0.2 then
+			topAlpha = (textureProp - 0.2)*0.5
+		else
+			return false
+		end
 	end
 	
-	if textureProp > 0.3 then
+	if vehiclePass then
+		if textureProp > 0.2 then
+			if height%8 > 5 then
+				local prop = math.max(0, math.min(1, (textureProp - 0.2)/0.3))*0.8 + 0.2
+				topAlpha = topAlpha - (0.14 + 0.1*prop)
+			end
+		end
+	elseif botPassPlus then
 		if height%8 > 5 then
-			topAlpha = 1 - topAlpha
+			topAlpha = textureProp*0.3 + 0.7
+		else
+			topAlpha = textureProp*0.1 + 0.9
+		end
+	elseif botPass then
+		if height%24 > 17 then
+			topAlpha = (1 - topAlpha)*textureProp + (1 - topAlpha)*textureProp
+		end
+	else
+		local modHeight = height%60
+		if modHeight > 24 then
+			local prop = (1 - math.abs(modHeight - 36)/18)*0.05
+			topAlpha = (1 - topAlpha)*prop + (1 - prop)*topAlpha
+		else
+			return false
 		end
 	end
 	
@@ -479,11 +516,14 @@ local function GetSlopeTexture(x, z)
 	local height      = Spring.GetGroundHeight(x, z)
 	local vehiclePass = (normal > VEH_NORMAL)
 	local botPass     = (normal > BOT_NORMAL)
-	local inWater     = (height < 0 and ((height < SHALLOW_HEIGHT) or (random() < height/SHALLOW_HEIGHT)))
+	local botPassPlus = (normal > BOT_NORMAL_PLUS)
+	local inWater     = false and (height < 6)
 	
-	local topTex, topAlpha = GetTopTex(normal, height, vehiclePass, botPass, inWater)
+	local topTex, topAlpha = GetTopTex(normal, height, vehiclePass, botPassPlus, botPass, inWater)
+	local mainTex = GetMainTex(height, botPassPlus, botPass, inWater)
+	local splatTex = GetSplatTex(height, vehiclePass, botPass, inWater)
 	
-	return GetMainTex(height, vehiclePass, botPass, inWater), GetSplatTex(height, vehiclePass, botPass, inWater), topTex, topAlpha, height
+	return mainTex, splatTex, topTex, topAlpha, height
 end
 
 local function InitializeTextures(useSplat, typemap)
@@ -533,9 +573,10 @@ end
 --------------------------------------------------------------------------------
 --------------------------------------------------------------------------------
 
-local function GetTextureSet(textureSetName)
+local function SetupTextureSet(textureSetName)
 	local usetextureSet = textureSetName .. '/'
 	local texturePath = 'unittextures/tacticalview/' .. usetextureSet
+	
 	return {
 		[1] = {
 			texture = texturePath.."v1.png",
@@ -643,7 +684,7 @@ end
 --------------------------------------------------------------------------------
 --------------------------------------------------------------------------------
 
-local texturePool
+local vehTexPool, botTexPool, spiderTexPool, uwTexPool
 local mapTexX, mapTexZ, topTexX, topTexZ, topTexAlpha, splatTexX, splatTexZ, mapHeight
 
 function gadget:DrawGenesis()
@@ -671,7 +712,7 @@ local function MakeMapTexture()
 		mapfullyprocessed = true
 		return
 	end
-	texturePool = GetTextureSet(Spring.GetGameRulesParam("typemap"))
+	texturePool = SetupTextureSet(Spring.GetGameRulesParam("typemap"))
 	mapTexX, mapTexZ, topTexX, topTexZ, topTexAlpha, splatTexX, splatTexZ, mapHeight = InitializeTextures(USE_SHADING_TEXTURE, Spring.GetGameRulesParam("typemap"))
 	initialized = true
 end
