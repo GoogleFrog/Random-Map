@@ -1017,7 +1017,7 @@ local function MakeRandomPoints(params)
 	end
 	
 	if params.pointSplitRadius then
-		DoPointSplit(points, params.pointSplitRadius, (params.startPoint and {1, 2}) or false)
+		DoPointSplit(points, params.pointSplitRadius, (params.startPoint and {1, 2, 3, 4}) or false)
 	end
 	
 	return points
@@ -1855,7 +1855,7 @@ local function SetEdgeSoloTerrain(params, edge)
 		effectMult = effectMultOffset + (1 - effectMultOffset)*(edge.length - thresholdLength)/thresholdLength
 	end
 	
-	effectMult = effectMult * (0.5 + 0.5*random())
+	effectMult = effectMult * (0.8 + 0.5*random())
 	
 	-- TODO detect this.
 	--edge.vehPass = false
@@ -1865,8 +1865,8 @@ local function SetEdgeSoloTerrain(params, edge)
 	
 	local width = 0.2*edge.length + 50 + 200*random()
 	
-	local startScale = 1.7*random() - 0.9
-	local endScaleChange = 0.2*random() - 0.1
+	local startScale = random() - 0.4
+	local endScaleChange = 0.3*random() - 0.15
 	if edge.teirDiff == 0 and ((nonFlatNeighbours == 0 and random() < 0.6) or (nonFlatNeighbours == 1 and random() < 0.35)) then
 		local sign = ((startScale > 0) and 1) or -1
 		startScale = 0.3*sign + 0.8*startScale
@@ -2238,6 +2238,11 @@ local function SetStartAndModifyCellTiers_SetPoint(cells, edgesSorted, waveFunc,
 	
 	startCell.mexMidpoint = GetMidpoint(startCell.averageMid, params.startPoint)
 	startCell.mirror.mexMidpoint = startCell.mexMidpoint
+	
+	if startCell.tier < 1 then
+		startCell.tier = 1
+		startCell.mirror.tier = 1
+	end
 	
 	return startCell
 end
@@ -2698,24 +2703,24 @@ local toDrawEdges = nil
 local waitCount = 0
 
 local newParams = {
-	startPoint = {700, 700},
-	startPointSize = 500,
-	points = 22,
-	midPoints = 2,
-	midPointRadius = 1050,
-	midPointSpace = 200,
-	minSpace = 120,
-	maxSpace = 280,
-	pointSplitRadius = 520,
-	edgeBias = 1.5,
+	startPoint = {500, 500},
+	startPointSize = 880,
+	points = 21,
+	midPoints = 3,
+	midPointRadius = 900,
+	midPointSpace = 100,
+	minSpace = 150,
+	maxSpace = 350,
+	pointSplitRadius = 500,
+	edgeBias = 1.4,
 	flatNeighbourIgloo = 560,
 	lowDiffNeighbourIgloo = 380,
 	highDiffNeighbourIgloo = 200,
 	cliffWidth = 20,
-	rampWidth  = 340,
-	generalWaveMod = 0.7,
-	waveDirectMult = 0.4,
-	bucketBase = 65,
+	rampWidth  = 300,
+	generalWaveMod = 0.9,
+	waveDirectMult = 0.5,
+	bucketBase = 55,
 	bucketStdMult = 0.55,
 	tierConst = 45,
 	heightOffsetFactor = 0.9,
@@ -2752,7 +2757,6 @@ local function MakeMap()
 	PlaceMetalSpots(cells, edges, startCell)
 	
 	EchoProgress("Metal generation complete")
-	Spring.MarkerAddPoint(0,0,0, "Seed: " .. randomSeed)
 end
 
 local timeMap = TIME_MAP_GEN
