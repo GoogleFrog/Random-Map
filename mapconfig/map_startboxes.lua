@@ -28,6 +28,29 @@ local function GetStartboxName(midX, midZ)
 	end
 end
 
+if not GG.mapgen_startBoxes then
+	local box = {
+		startpoints = {
+			{
+				227.909378,
+				1284.64685,
+			},
+		},
+		nameShort = "NW",
+		boxes = {
+			{
+				{
+					227.909378,
+					1284.64685,
+				},
+			},
+		},
+		nameLong = "North-West",
+	}
+	return {box, box}, {2}
+end
+
+local boxNum = 0
 for i = 1, #GG.mapgen_startBoxes do
 	local points = GG.mapgen_startBoxes[i]
 	local coords = {}
@@ -42,7 +65,7 @@ for i = 1, #GG.mapgen_startBoxes do
 	aveX, aveZ = aveX/#coords, aveZ/#coords
 	local nameLong, nameShort = GetStartboxName(aveX/Game.mapSizeX, aveZ/Game.mapSizeZ)
 	
-	startBoxes[#startBoxes + 1] = {
+	startBoxes[boxNum] = {
 		boxes = {
 			coords
 		},
@@ -52,7 +75,9 @@ for i = 1, #GG.mapgen_startBoxes do
 		nameLong = nameLong, 
 		nameShort = nameShort,
 	}
-	
+	boxNum = boxNum + 1
 end
 
-return startBoxes, { 2 }
+Spring.Utilities.TableEcho(startBoxes, "startBoxes")
+
+return startBoxes

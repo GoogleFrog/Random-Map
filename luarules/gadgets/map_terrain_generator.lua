@@ -1,8 +1,4 @@
---------------------------------------------------------------------------------
---------------------------------------------------------------------------------
-if not gadgetHandler:IsSyncedCode() then
-	return
-end
+
 --------------------------------------------------------------------------------
 --------------------------------------------------------------------------------
 
@@ -16,6 +12,64 @@ function gadget:GetInfo()
 		layer    = -math.huge + 2,
 		enabled   = true  --  loaded by default?
 	}
+end
+
+--------------------------------------------------------------------------------
+--------------------------------------------------------------------------------
+-- Configuration
+
+local MIN_EDGE_LENGTH = 10
+local DISABLE_TERRAIN_GENERATOR = false
+local TIME_MAP_GEN = false
+
+--------------------------------------------------------------------------------
+--------------------------------------------------------------------------------
+
+if not gadgetHandler:IsSyncedCode() then
+	local timer
+	local sumTimer = {}
+	local sumTimes = {}
+	function TimerEcho(_, text)
+		if not timer then
+			timer = Spring.GetTimer()
+			Spring.Echo(text)
+			return
+		end
+		local cur = Spring.GetTimer()
+		Spring.Echo(text, "Elapsed", Spring.DiffTimers(cur, timer, true))
+		timer = cur
+	end
+
+	function SumTimeStart(_, text)
+		sumTimer[text] = Spring.GetTimer()
+	end
+
+	function SumTimeEnd(_, text)
+		local cur = Spring.GetTimer()
+		local diffTime = Spring.DiffTimers(cur, sumTimer[text], true)
+		sumTimes[text] = (sumTimes[text] or 0) + diffTime
+	end
+
+	function SumTimeEcho(_, text)
+		Spring.Echo("SumTime", text, sumTimes[text])
+	end
+
+	function gadget:Initialize()
+		gadgetHandler:AddSyncAction("TimerEcho", TimerEcho)
+		gadgetHandler:AddSyncAction("SumTimeStart", SumTimeStart)
+		gadgetHandler:AddSyncAction("SumTimeEnd", SumTimeEnd)
+		gadgetHandler:AddSyncAction("SumTimeEcho", SumTimeEcho)
+	end
+
+	return
+end
+
+local function EchoProgress(text)
+	if TIME_MAP_GEN then
+		SendToUnsynced("TimerEcho", text)
+	else
+		Spring.Echo(text)
+	end
 end
 
 --------------------------------------------------------------------------------
@@ -40,13 +94,6 @@ local ceil   = math.ceil
 local min    = math.min
 local max    = math.max
 local random = math.random
-
---------------------------------------------------------------------------------
---------------------------------------------------------------------------------
--- Configuration
-
-local MIN_EDGE_LENGTH = 10
-local DISABLE_TERRAIN_GENERATOR = false
 
 --------------------------------------------------------------------------------
 --------------------------------------------------------------------------------
@@ -520,6 +567,27 @@ local MAP_BORDER = {
 	{{    0, -10*MAP_Z}, {    0, 10*MAP_Z}},
 	{{MAP_X, -10*MAP_Z}, {MAP_X, 10*MAP_Z}},
 }
+
+local smoothFilter = {}
+for x = -32, 32, 8 do
+	for z = -32, 32, 8 do
+		local short, long
+		if abs(x) < abs(z) then
+			short, long = abs(x), abs(z)
+		else
+			short, long = abs(z), abs(x)
+		end
+		if short == 0 and long == 32 then
+			smoothFilter[#smoothFilter + 1] = {x, z, 0.33}
+		elseif short == 8 and long == 32 then
+			smoothFilter[#smoothFilter + 1] = {x, z, 0.18}
+		elseif short == 16 and long == 24 then
+			smoothFilter[#smoothFilter + 1] = {x, z, 0.75}
+		elseif short + long <= 32 then
+			smoothFilter[#smoothFilter + 1] = {x, z, 1}
+		end
+	end
+end
 
 local END_FLATTENING = 1.04
 local POINT_COUNT = 11
@@ -1212,7 +1280,10 @@ local function GetSlopeWidth(startWidth, endWidth, startDist, endDist, dist)
 end
 
 local function MakeEdgeSlope(params, tangDist, projDist, length, startWidth, endWidth, segStartWidth, segEndWidth, startDist, endDist, overshootStart, beyondFactor)
-	local maxWidth = max(segStartWidth, segEndWidth)
+	local maxWidth = segStartWidth
+	if maxWidth < segEndWidth then
+		maxWidth = segEndWidth
+	end
 	beyondFactor = beyondFactor or 1
 	
 	if tangDist < -maxWidth then
@@ -1223,7 +1294,23 @@ local function MakeEdgeSlope(params, tangDist, projDist, length, startWidth, end
 	end
 	
 	local dist = abs(tangDist)
-	local width = GetSlopeWidth(startWidth, endWidth, startDist, endDist, projDist/length)
+	local propDist = startDist + dist*(endDist - startDist)
+	if propDist < startDist then
+		propDist = startDist
+	elseif propDist > endDist then
+		propDist = endDist
+	end
+	
+	local prop
+	if propDist < 0.15 then
+		prop = 1
+	elseif propDist > 0.85 then
+		prop = 0
+	else
+		prop = (cos(((propDist - 0.15) * 1.4285)*pi) + 1) * 0.5
+	end
+	
+	local width = prop*startWidth + (1 - prop)*endWidth
 	local sign = ((tangDist > 0) and 1) or -1
 	
 	if dist > width then
@@ -1234,13 +1321,14 @@ local function MakeEdgeSlope(params, tangDist, projDist, length, startWidth, end
 		width = ((projDist < 0) and segStartWidth) or segEndWidth
 		local offDist = ((projDist < 0) and -projDist) or (projDist - length)
 		offDist = (offDist^beyondFactor)
-		dist = sqrt(offDist^2 + dist^2)
-		if dist > width then
+		local distSq = offDist*offDist + dist*dist
+		if distSq > width*width then
 			return
 		end
+		dist = sqrt(distSq)
 	end
 	
-	local change = (1 - cos(pi*(sign*dist/2 + width/2)/width))/2
+	local change = (1 - cos(pi*(sign*dist*0.5 + width*0.5)/width))*0.5
 	if change > 0.5 then
 		return false, (1 - change)
 	else
@@ -1278,10 +1366,11 @@ local function MakeWaveFuncIgloo(params, tangDist, projDist, length, startWidth,
 			projDist = length
 		end
 		offDist = (offDist^beyondFactor)
-		dist = sqrt(offDist^2 + dist^2)
-		if dist > width then
+		local distSq = offDist^2 + dist^2
+		if distSq > width*width then
 			return
 		end
+		dist = sqrt(distSq)
 	end
 	
 	local scale = 1
@@ -1297,6 +1386,7 @@ local function MakeWaveFuncIgloo(params, tangDist, projDist, length, startWidth,
 end
 
 local function ApplyLineDistanceFunc(tierFlood, cellTier, otherTier, heightMod, waveMod, lineStart, lineEnd, HeightFunc, heightParams, startWidth, endWidth, startDist, endDist, otherClockwise, overshootStart, beyondFactor)
+	-- Most of the time is spent here.
 	local segStartWidth = GetSlopeWidth(startWidth, endWidth, startDist, endDist, 0)
 	local segEndWidth   = GetSlopeWidth(startWidth, endWidth, startDist, endDist, 1)
 	local width = max(segStartWidth, segEndWidth)
@@ -1322,18 +1412,23 @@ local function ApplyLineDistanceFunc(tierFlood, cellTier, otherTier, heightMod, 
 	
 	otherClockwise = ((otherClockwise and true) or false)
 	
+	-- Speedups
+	local vx, vz, projDist, tangDist, tangDistAbs, maxWidth
+	local towardsCellTier, towardsOtherTier, waveMultMod, posIndex
+	
+	--SendToUnsynced("SumTimeStart", "ApplyLineDistanceFunc")
 	for x = left, right, 8 do
 		for z = top, bot, 8 do
-			local vx, vz = x - ox, z - oz
-			local projDist = vx*pdx + vz*pdz
-			local tangDist = vx*tdx + vz*tdz
+			vx, vz = x - ox, z - oz
+			projDist = vx*pdx + vz*pdz
+			tangDist = vx*tdx + vz*tdz
 			
 			if not otherClockwise then
 				tangDist = -tangDist
 			end
 			
 			if tierFlood and (projDist > -8 and projDist < lineLength + 8 and tangDist > -20 and tangDist < 40) then
-				local tangDistAbs = abs(tangDist)
+				tangDistAbs = abs(tangDist)
 				if projDist < 0 then
 					tangDistAbs = tangDistAbs - projDist*3
 				elseif projDist > lineLength then
@@ -1343,37 +1438,39 @@ local function ApplyLineDistanceFunc(tierFlood, cellTier, otherTier, heightMod, 
 				tierFlood.AddHeight(x, z, ((tangDist > 0) and cellTier) or otherTier, tangDistAbs)
 			end
 			
-			
-			local towardsCellTier, towardsOtherTier, waveMultMod = HeightFunc(heightParams, tangDist, projDist, lineLength, startWidth, endWidth, segStartWidth, segEndWidth, startDist, endDist, overshootStart, beyondFactor)
-			local posIndex = GetPosIndex(x, z)
-			
-			if towardsCellTier then
-				heightMod[posIndex] = heightMod[posIndex] or {}
-				if ((not heightMod[posIndex][cellTier]) or heightMod[posIndex][cellTier] < towardsCellTier) then
-					heightMod[posIndex][cellTier] = towardsCellTier
-				end
-			end
-			
-			if towardsOtherTier then
-				heightMod[posIndex] = heightMod[posIndex] or {}
-				if ((not heightMod[posIndex][otherTier]) or heightMod[posIndex][otherTier] < towardsOtherTier) then
-					heightMod[posIndex][otherTier] = towardsOtherTier
-				end
-			end
-			
-			if waveMultMod then
-				if waveMultMod > 0 then
-					if ((not waveMod.up[posIndex]) or waveMod.up[posIndex] < waveMultMod) then
-						waveMod.up[posIndex] = waveMultMod
+			towardsCellTier, towardsOtherTier, waveMultMod = HeightFunc(heightParams, tangDist, projDist, lineLength, startWidth, endWidth, segStartWidth, segEndWidth, startDist, endDist, overshootStart, beyondFactor)
+			if towardsCellTier or towardsOtherTier or waveMultMod then
+				posIndex = GetPosIndex(x, z)
+				
+				if towardsCellTier then
+					heightMod[posIndex] = heightMod[posIndex] or {}
+					if ((not heightMod[posIndex][cellTier]) or heightMod[posIndex][cellTier] < towardsCellTier) then
+						heightMod[posIndex][cellTier] = towardsCellTier
 					end
-				else
-					if ((not waveMod.down[posIndex]) or waveMod.down[posIndex] > waveMultMod) then
-						waveMod.down[posIndex] = waveMultMod
+				end
+				
+				if towardsOtherTier then
+					heightMod[posIndex] = heightMod[posIndex] or {}
+					if ((not heightMod[posIndex][otherTier]) or heightMod[posIndex][otherTier] < towardsOtherTier) then
+						heightMod[posIndex][otherTier] = towardsOtherTier
+					end
+				end
+				
+				if waveMultMod then
+					if waveMultMod > 0 then
+						if ((not waveMod.up[posIndex]) or waveMod.up[posIndex] < waveMultMod) then
+							waveMod.up[posIndex] = waveMultMod
+						end
+					else
+						if ((not waveMod.down[posIndex]) or waveMod.down[posIndex] > waveMultMod) then
+							waveMod.down[posIndex] = waveMultMod
+						end
 					end
 				end
 			end
 		end
 	end
+	--SendToUnsynced("SumTimeEnd", "ApplyLineDistanceFunc")
 end
 
 local function GetLineHeightModifiers(tierFlood, cellTier, otherTier, heightMod, startPoint, endPoint, width, otherClockwise)
@@ -1971,6 +2068,56 @@ local function SetStartAndModifyCellTiers(cells, edgesSorted, waveFunc, waveMult
 	return startCell
 end
 
+local function SetStartAndModifyCellTiers_New(cells, edgesSorted, waveFunc, waveMult)
+	local idealFlatness = 75
+	local acceptableFlatness = 200
+	
+	local startCell
+	local startEdge
+	local maxSizeValue
+
+	for i = 1, #edgesSorted do
+		local thisEdge = edgesSorted[i]
+		if #thisEdge.faces == 1 then
+			local thisCell = thisEdge.faces[1]
+			if thisCell.firstMirror then
+				if not startCell then
+					-- Fallback in case none are found
+					startCell = thisEdge.faces[1]
+				end
+				if (thisCell.tier >= -1) and (not thisCell.adjacentToCorner) then
+					local heightDiff, cheapDeviation = EstimateHeightDiff(thisCell.averageMid, 700, waveFunc, waveMult)
+					local flatness = heightDiff*cheapDeviation
+					if flatness < acceptableFlatness then
+						local cellSizeValue = thisCell.area * thisEdge.length
+						if flatness > idealFlatness then
+							cellSizeValue = cellSizeValue*(1 - (flatness - idealFlatness)/(acceptableFlatness - idealFlatness))
+						end
+						if (not maxSizeValue) or (cellSizeValue > maxSizeValue) then
+							startCell = thisEdge.faces[1]
+							startEdge = thisEdge
+							maxSizeValue = cellSizeValue
+						end
+					end
+				end
+			end
+		end
+	end
+	
+	SetStartboxDataFromPolygon(GetCellVertices(startCell))
+	
+	-- Set start cell parameters
+	startCell.isMainStartPos = true
+	startCell.isStartPos = true
+	startCell.mirror.isMainStartPos = startCell.isMainStartPos
+	startCell.mirror.isStartPos = startCell.isStartPos
+	
+	startCell.mexMidpoint = GetMidpoint(startCell.averageMid, GetMidpoint(startEdge))
+	startCell.mirror.mexMidpoint = startCell.mexMidpoint
+	
+	return startCell
+end
+
 local function SetIslandStart(cells, edgesSorted, waveFunc, waveMult)
 	local idealFlatness = 75
 	local acceptableFlatness = 200
@@ -2081,7 +2228,7 @@ local function GetRandomMexPos(mexes, edges, pos, megaMex, placeRadius, maxRadiu
 	local lineAvoid  = 300
 	
 	local randomPoint
-	while tries < 50 do
+	while tries < 10 do
 		randomPoint = GetRandomPointInCircle(pos, placeRadius, 180)
 		local _, lineDistSq = GetClosestLine(randomPoint, edges, HasTierDiff)
 		if (not lineDistSq) or (lineAvoid^2 < lineDistSq) then
@@ -2170,11 +2317,13 @@ local function AllocateMetalSpots(cells, edges, startCell)
 		local thisCell = cells[i]
 		if thisCell.firstMirror then
 			local mirror = thisCell.mirror
+			local diffDist = false
 			local minBotDist = false
 			
 			if thisCell.landBotDist and mirror and mirror.landBotDist then
 				thisCell.startPathFactor = (abs(thisCell.landBotDist - mirror.landBotDist) - minPathDiff)/(maxPathDiff - minPathDiff)
 				minBotDist = min(thisCell.landBotDist, (mirror and mirror.landBotDist) or mirror.landBotDist)
+				diffDist = abs(thisCell.landBotDist - mirror.landBotDist)
 			else
 				thisCell.startPathFactor = 0
 				thisCell.unreachable = true
@@ -2186,13 +2335,16 @@ local function AllocateMetalSpots(cells, edges, startCell)
 			if thisCell.isMainStartPos then
 				thisCell.metalSpots = 3
 			else
-				thisCell.mexAlloc = thisCell.startPathFactor*1.4 + thisCell.startDistFactor*1.2 + thisCell.closeDistFactor*0.7 - 0.15
+				thisCell.mexAlloc = thisCell.startPathFactor*1.2 + thisCell.startDistFactor*1.2 + thisCell.closeDistFactor*0.7 - 0.25
+				if diffDist and diffDist <= 1 then
+					thisCell.mexAlloc = thisCell.mexAlloc + 0.5
+				end
 				if minBotDist == 1 then
-					thisCell.mexAlloc = thisCell.mexAlloc - 0.4
+					thisCell.mexAlloc = thisCell.mexAlloc - 0.2
 					thisCell.adjacentToStart = true
 				end
 				if thisCell.adjacentToBorder then
-					thisCell.mexAlloc = thisCell.mexAlloc + 0.15
+					thisCell.mexAlloc = thisCell.mexAlloc + 0.05
 				end
 				if thisCell.adjacentToCorner then
 					thisCell.mexAlloc = thisCell.mexAlloc + 0.35
@@ -2220,7 +2372,7 @@ local function AllocateMetalSpots(cells, edges, startCell)
 			if thisCell.firstMirror then
 				if thisCell.mexAlloc and (randAllocateSum < thisCell.mexAlloc) then
 					mexCell = thisCell
-					--PointEcho(thisCell.site, "Cell picked: " .. thisCell.mexAlloc)
+					PointEcho(thisCell.site, "Cell picked: " .. thisCell.mexAlloc)
 					break
 				else
 					randAllocateSum = randAllocateSum - (thisCell.mexAlloc or 0)
@@ -2252,11 +2404,11 @@ local function AllocateMetalSpots(cells, edges, startCell)
 		mexSpots = mexSpots - mexAssignment
 	end
 	
-	--for i = 1, #cells do
-	--	local thisCell = cells[i]
-	--	local text = (thisCell.landBotDist or "NONE") .. ", " .. (thisCell.mirror.landBotDist or "NONE")
-	--	PointEcho(thisCell.averageMid, "Dist: " .. text .. (((thisCell.unreachable or thisCell.mirror.unreachable) and ", UNREACHABLE") or ""))
-	--end
+	for i = 1, #cells do
+		local thisCell = cells[i]
+		local text = (thisCell.landBotDist or "NONE") .. ", " .. (thisCell.mirror.landBotDist or "NONE")
+		PointEcho(thisCell.averageMid, "Dist: " .. text .. (((thisCell.unreachable or thisCell.mirror.unreachable) and ", UNREACHABLE") or ""))
+	end
 end
 
 local function PlaceMex(mexes, edges, pos, megaMex)
@@ -2371,59 +2523,44 @@ end
 local function GetTerrainStructure(params)
 	local waveFunc = GetTerrainWaveFunction(params)
 	--TerraformByFunc(waveFunc)
-	TimerEcho("Wave generation complete")
+	EchoProgress("Wave generation complete")
 	
 	local cells, edges = GetVoronoi(params)
-	TimerEcho("Voronoi generation complete")
+	EchoProgress("Voronoi generation complete")
 	
 	local edgesSorted = Spring.Utilities.CopyTable(edges, false)
 	table.sort(edgesSorted, CompareLength)
 	
 	local tierConst, tierHeight, tierMin, tierMax = GenerateCellTiers(params, cells, waveFunc)
 	
-	local startCell = params.StartPositionFunc(cells, edgesSorted, waveFunc, GetWaveHeightMult(tierMin, tierMax))
+	local startCell = params.StartPositionFunc(cells, edgesSorted, waveFunc, GetWaveHeightMult(tierMin, tierMax), params)
 	
 	tierMin, tierMax = GenerateEdgePassability(params, edgesSorted, tierMin, tierMax)
 	AllocateMetalSpots(cells, edges, startCell)
 	SetTreeDensity(cells)
 	
-	TimerEcho("Terrain structure complete")
+	EchoProgress("Terrain structure complete")
 
 	return cells, edges, edgesSorted, heightMod, waveFunc, tiers, tierConst, tierHeight, tierMin, tierMax, startCell
 end
 
 local function MakeHeightmap(cells, edges, heightMod, waveFunc, tiers, tierConst, tierHeight, tierMin, tierMax)
 	local tierFlood, heightMod, waveMod = ProcessEdges(cells, edges)
-	TimerEcho("Edge processing complete")
+	EchoProgress("Edge processing complete")
+	EchoProgress("ApplyLineDistanceFunc")
 	
 	local tiers = tierFlood.RunFloodfillAndGetValues()
-	TimerEcho("Tier propagation complete")
+	EchoProgress("Tier propagation complete")
 
 	local heights = ApplyHeightModifiers(tierConst, tierHeight, tierMin, tierMax, tiers, heightMod, waveMod, waveFunc, GetWaveHeightMult(tierMin, tierMax))
-	TimerEcho("Height application complete")
-	
-	local smoothFilter = {
-		{0, 0, 1},
-		{8, 0, 1},
-		{-8, 0, 1},
-		{0, 8, 1},
-		{0, -8, 1},
-		{8, 8, 0.9},
-		{8, -8, 0.9},
-		{-8, 8, 0.9},
-		{-8, -8, 0.9},
-		{16, 0, 0.65},
-		{-16, 0, 0.65},
-		{0, 16, 0.65},
-		{0, -16, 0.65},
-	}
+	EchoProgress("Height application complete")
 	
 	local smoothHeights = ApplyHeightSmooth(heights, smoothFilter)
-	TimerEcho("Smoothing complete")
+	EchoProgress("Smoothing complete")
 
 	TerraformByHeights(smoothHeights)
 	GG.mapgen_origHeight = smoothHeights
-	TimerEcho("Map terrain complete")
+	EchoProgress("Map terrain complete")
 	
 	return smoothHeights
 end
@@ -2457,22 +2594,22 @@ local oldParams = {
 }
 
 local newParams = {
-	points = 22,
-	minSpace = 450,
-	maxSpace = 600,
-	edgeBias = 1.4,
+	points = 35,
+	minSpace = 250,
+	maxSpace = 450,
+	edgeBias = 1.6,
 	flatNeighbourIgloo = 560,
 	lowDiffNeighbourIgloo = 380,
 	highDiffNeighbourIgloo = 200,
-	cliffWidth = 20,
+	cliffWidth = 10,
 	rampWidth  = 360,
-	generalWaveMod = 0,
+	generalWaveMod = 1,
 	bucketBase = 65,
 	bucketStdMult = 0.55,
 	tierConst = 45,
-	heightOffsetFactor = 0.8,
+	heightOffsetFactor = 0.9,
 	mapBorderTier = false,
-	StartPositionFunc = SetStartAndModifyCellTiers,
+	StartPositionFunc = SetStartAndModifyCellTiers_New,
 	borderIgloos = true,
 }
 
@@ -2496,12 +2633,14 @@ local islandParams = {
 	borderIgloos = false,
 }
 
-function gadget:Initialize()
+local function MakeMap()
 	local params = newParams
 	local randomSeed = GetSeed()
+	randomSeed = 10291
 	-- 45998
 	-- 44245
 	-- 23078 floodfill issue
+	-- 82606 mountainous
 	-- 65890 generates a voronoi that has an intersection crash
 	math.randomseed(randomSeed)
 
@@ -2514,7 +2653,7 @@ function gadget:Initialize()
 		return
 	end
 	
-	TimerEcho("Map Terrain Generation")
+	EchoProgress("Map Terrain Generation")
 	Spring.Echo("Random Seed", randomSeed)
 	
 	local cells, edges, edgesSorted, heightMod, waveFunc, tiers, tierConst, tierHeight, tierMin, tierMax, startCell = GetTerrainStructure(params)
@@ -2525,10 +2664,22 @@ function gadget:Initialize()
 	ApplyTreeDensity(cells)
 	PlaceMetalSpots(cells, edges, startCell)
 	
-	TimerEcho("Metal generation complete")
+	EchoProgress("Metal generation complete")
+	Spring.MarkerAddPoint(0,0,0, "Seed: " .. randomSeed)
+end
+
+local timeMap = TIME_MAP_GEN
+function gadget:Initialize()
+	if not timeMap then
+		MakeMap()
+	end
 end
 
 function gadget:GameFrame()
+	if timeMap then
+		MakeMap()
+		timeMap = false
+	end
 	if not toDrawEdges then
 		return
 	end
@@ -2557,18 +2708,6 @@ end
 --------------------------------------------------------------------------------
 --------------------------------------------------------------------------------
 -- Debug
-
-local timer
-function TimerEcho(text)
-	if not timer then
-		--timer = Spring.GetTimer()
-		Spring.Echo(text)
-		return
-	end
-	--local cur = Spring.GetTimer()
-	--Spring.Echo(Spring.DiffTimers(cur, timer, true), text)
-	--timer = cur
-end
 
 function PointEcho(point, text)
 	Spring.MarkerAddPoint(point[1], 0, point[2], text or "")

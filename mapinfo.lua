@@ -5,10 +5,10 @@
 
 local mapinfo = {
 	name        = "Random Crags",
-	shortname   = "RCrags",
-	description = "A sometimes-craggy, sometimes flat random map (12x12)",
+	shortname   = "rcrags",
+	description = "A sometimes-craggy, sometimes flat random map (10x10)",
 	author      = "GoogleFrog",
-	version     = "v0.6",
+	version     = "v2.1",
 	modtype     = 3, --// 1=primary, 0=hidden, 3=map
 
 	maphardness     = 140,
@@ -23,7 +23,7 @@ local mapinfo = {
 	smf = {
 		minheight = -105,
 		maxheight = 280,
-		smtFileName0 = "RandomBaseMap.smt",
+		smtFileName0 = "RandomBaseMap10.smt",
 	},
 
 	sound = {
