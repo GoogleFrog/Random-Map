@@ -47,7 +47,7 @@ if not GG.mapgen_startBoxes then
 		},
 		nameLong = "North-West",
 	}
-	return {box, box}, {2}
+	return {[0] = box, [1] = box}
 end
 
 local boxNum = 0
@@ -77,7 +77,5 @@ for i = 1, #GG.mapgen_startBoxes do
 	}
 	boxNum = boxNum + 1
 end
-
-Spring.Utilities.TableEcho(startBoxes, "startBoxes")
 
 return startBoxes

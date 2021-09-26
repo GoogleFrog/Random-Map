@@ -463,6 +463,12 @@ local function GetTopTex(normal, height, vehiclePass, botPass, inWater)
 		topAlpha = 0.15*textureProp
 	end
 	
+	if textureProp > 0.3 then
+		if height%8 > 5 then
+			topAlpha = 1 - topAlpha
+		end
+	end
+	
 	return topTex, topAlpha
 end
 
