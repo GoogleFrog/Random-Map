@@ -71,9 +71,9 @@ local BLACK_TEX = 1
 local SPIDER_TEX = 5
 local BOT_TEX = 5
 local VEH_TEX = 20
-local VEH_SAMPLE_RANGE = 2.3
-local VEH_HEIGHT_MAX = 360
-local VEH_HEIGHT_MIN = -40
+local VEH_SAMPLE_RANGE = 1.8
+local VEH_HEIGHT_MAX = 370
+local VEH_HEIGHT_MIN = -50
 
 local floor  = math.floor
 local random = math.random
