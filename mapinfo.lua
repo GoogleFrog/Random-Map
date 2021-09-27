@@ -85,8 +85,8 @@ local mapinfo = {
 		sunDir        = {0.35, 1.0, 0.3, 1e9},
 
 		--// unit & ground lighting
-		groundAmbientColor  = {0.35, 0.45, 0.3},
-		groundDiffuseColor  = {0.7, 0.72, 0.43},
+		groundAmbientColor  = {0.62, 0.68, 0.4},
+		groundDiffuseColor  = {0.42, 0.58, 0.385},
 		groundSpecularColor = {0.1, 0.1, 0.1},
 		groundShadowDensity = 0.8,
 		unitAmbientColor    = {0.55, 0.55, 0.45},
@@ -100,32 +100,29 @@ local mapinfo = {
 	water = {
 		damage =  0,
 
-		repeatX = 0.0,
-		repeatY = 0.0,
-
-		absorb    = {0.004, 0.003, 0.002},
-		baseColor = {0.4, 0.7, 0.8},
-		minColor  = {0.1, 0.2, 0.3},
-
-		ambientFactor  = 0.0,
-
-		planeColor = {0.1, 0.1, 0.3},
-
-		surfaceColor  = {0.4, 0.7, 0.8},
-
-		fresnelMin   = 0.01,
-		fresnelMax   = 0.02,
-		fresnelPower = 0.015,
-
-		reflectionDistortion = 0.1,
-
-		blurBase      = 0,
-		blurExponent = 0.1,
-
-		perlinStartFreq  =  10,
-		perlinLacunarity = 5,
-		perlinAmplitude  =  1,
-		windSpeed = 1, --// does nothing yet
+		["surfaceColor"]= {0.55778897, 0.73869348, 0.57788944, 1},
+		["fresnelMin"]= 0.07,
+		["blurExponent"]= 0.51999998,
+		["reflectionDistortion"]= 0,
+		["specularColor"]= {0.37185928, 0.42211056, 0.55778897, 1},
+		["fresnelPower"]= 2.63999987,
+		["specularPower"]= 10.3999996,
+		["perlinStartFreq"]= 9.59999943,
+		["absorb"]= {0, 0, 0, 0.59798998},
+		["fresnelMax"]= 0.34999999,
+		["diffuseColor"]= {0.77386934, 0.68844223, 0.65326631, 1},
+		["perlinAmplitude"]= 1.43999994,
+		["perlinLacunarity"]= 2.3599999,
+		["specularFactor"]= 0.25999999,
+		["minColor"]= {0.36683416, 0.30653265, 0.53266335, 1},
+		["planeColor"]= {0.40201005, 0.40703517, 0.6231156, 1},
+		["surfaceAlpha"]= 0.16,
+		["blurBase"]= 0,
+		["diffuseFactor"]= 0.42999998,
+		["repeatX"]= 7.79999971,
+		["ambientFactor"]= 0.74000001,
+		["repeatY"]= 9.80000019,
+		["baseColor"]= {0, 0, 0, 1},
 
 		shoreWaves = true,
 		forceRendering = false,

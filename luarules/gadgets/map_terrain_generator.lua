@@ -1902,13 +1902,12 @@ local function SetEdgeSoloTerrain(params, edge)
 	edge.soloTerrainStartWidth = width
 	edge.soloTerrainEndWidth   = math.max(100, width*(0.5 + random()) + (1.8*random() - 1)*(6 + 0.2*edge.length))
 	
-	if endpointOnStart[1] then
-		edge.soloTerrainStartWidth = 50
+	if endpointOnStart[1] and edge.soloTerrainStartWidth > 200 then
+		edge.soloTerrainStartWidth = 200
 	end
-	if endpointOnStart[2] then
-		edge.soloTerrainEndWidth = 50
+	if endpointOnStart[2] and edge.soloTerrainEndWidth > 200 then
+		edge.soloTerrainEndWidth = 200
 	end
-	
 	
 	if edge.length < 50 then
 		endScaleChange = endScaleChange*0.2
@@ -2100,158 +2099,11 @@ end
 
 local STARTBOX_WIDTH = 600
 
-local function SetStartAndModifyCellTiers(cells, edgesSorted, waveFunc, waveMult)
-	local idealFlatness = 75
-	local acceptableFlatness = 200
-	
-	local startCell
-	local startEdge
-	local maxSizeValue
-
-	for i = 1, #edgesSorted do
-		local thisEdge = edgesSorted[i]
-		if #thisEdge.faces == 1 then
-			local thisCell = thisEdge.faces[1]
-			if thisCell.firstMirror then
-				if not startCell then
-					-- Fallback in case none are found
-					startCell = thisEdge.faces[1]
-					startEdge = thisEdge
-				end
-				if (thisCell.tier >= -1) and (not thisCell.adjacentToCorner) then
-					local heightDiff, cheapDeviation = EstimateHeightDiff(thisCell.averageMid, 700, waveFunc, waveMult)
-					local flatness = heightDiff*cheapDeviation
-					if flatness < acceptableFlatness then
-						local cellSizeValue = thisCell.area * thisEdge.length
-						if flatness > idealFlatness then
-							cellSizeValue = cellSizeValue*(1 - (flatness - idealFlatness)/(acceptableFlatness - idealFlatness))
-						end
-						if (not maxSizeValue) or (cellSizeValue > maxSizeValue) then
-							startCell = thisEdge.faces[1]
-							startEdge = thisEdge
-							maxSizeValue = cellSizeValue
-						end
-					end
-				end
-			end
-		end
-	end
-	
-	-- Crawl along the edge to find more start cells.
-	local outerStartCells = {}
-	local startboxVertices = {}
-	for n = 1, 2 do
-		local nbhd = startEdge.neighbours[n]
-		for i = 1, #nbhd do
-			local thisEdge = nbhd[i]
-			if #thisEdge.faces == 1 then
-				local outerEnd = 3 - startEdge.incidentEnd[thisEdge.index]
-				outerStartCells[#outerStartCells + 1] = thisEdge.faces[1]
-				local thisNbhd = thisEdge.neighbours[outerEnd]
-				for j = 1, #thisNbhd do
-					local otherEdge = thisNbhd[j]
-					if thisEdge.incidentFace[otherEdge.index] then
-						local otherN = thisEdge.incidentEnd[otherEdge.index]
-						local otherEdgeVector = Subtract(otherEdge[3 - otherN], otherEdge[otherN])
-						local offVector = Mult(STARTBOX_WIDTH/abs(Dot(otherEdgeVector, RotateLeft(thisEdge.unit))), otherEdgeVector)
-						
-						local commonEnd = otherEdge[otherN]
-						local inwardsEnd = Add(commonEnd, offVector)
-						
-						if n == 1 then
-							startboxVertices[#startboxVertices + 1] = inwardsEnd
-							startboxVertices[#startboxVertices + 1] = commonEnd
-						else
-							startboxVertices[#startboxVertices + 1] = commonEnd
-							startboxVertices[#startboxVertices + 1] = inwardsEnd
-						end
-					end
-				end
-			end
-		end
-	end
-	
-	startboxVertices[#startboxVertices + 1] = startCell.averageMid
-	
-	SetStartboxDataFromPolygon(startboxVertices)
-	
-	-- Set start cell parameters
-	startCell.isMainStartPos = true
-	startCell.isStartPos = true
-	startCell.mirror.isMainStartPos = startCell.isMainStartPos
-	startCell.mirror.isStartPos = startCell.isStartPos
-	
-	startCell.mexMidpoint = GetMidpoint(startCell.averageMid, GetMidpoint(startEdge))
-	startCell.mirror.mexMidpoint = startCell.mexMidpoint
-	
-	for i = 1, #outerStartCells do
-		local thisCell = outerStartCells[i]
-		thisCell.isAuxStartPos = true
-		thisCell.isStartPos = true
-		thisCell.tier = startCell.tier
-		if thisCell.mirror then
-			thisCell.mirror.isAuxStartPos = thisCell.isAuxStartPos
-			thisCell.mirror.isStartPos = thisCell.isStartPos
-			thisCell.mirror.tier = thisCell.tier
-		end
-	end
-	
-	return startCell
-end
-
-local function SetStartAndModifyCellTiers_New(cells, edgesSorted, waveFunc, waveMult, params)
-	local idealFlatness = 75
-	local acceptableFlatness = 200
-	
-	local startCell
-	local startEdge
-	local maxSizeValue
-
-	for i = 1, #edgesSorted do
-		local thisEdge = edgesSorted[i]
-		if #thisEdge.faces == 1 then
-			local thisCell = thisEdge.faces[1]
-			if thisCell.firstMirror then
-				if not startCell then
-					-- Fallback in case none are found
-					startCell = thisEdge.faces[1]
-				end
-				if (thisCell.tier >= -1) and (not thisCell.adjacentToCorner) then
-					local heightDiff, cheapDeviation = EstimateHeightDiff(thisCell.averageMid, 700, waveFunc, waveMult)
-					local flatness = heightDiff*cheapDeviation
-					if flatness < acceptableFlatness then
-						local cellSizeValue = thisCell.area * thisEdge.length
-						if flatness > idealFlatness then
-							cellSizeValue = cellSizeValue*(1 - (flatness - idealFlatness)/(acceptableFlatness - idealFlatness))
-						end
-						if (not maxSizeValue) or (cellSizeValue > maxSizeValue) then
-							startCell = thisEdge.faces[1]
-							startEdge = thisEdge
-							maxSizeValue = cellSizeValue
-						end
-					end
-				end
-			end
-		end
-	end
-	
-	SetStartboxDataFromPolygon(GetCellVertices(startCell))
-	
-	-- Set start cell parameters
-	startCell.isMainStartPos = true
-	startCell.isStartPos = true
-	startCell.mirror.isMainStartPos = startCell.isMainStartPos
-	startCell.mirror.isStartPos = startCell.isStartPos
-	
-	startCell.mexMidpoint = GetMidpoint(startCell.averageMid, GetMidpoint(startEdge))
-	startCell.mirror.mexMidpoint = startCell.mexMidpoint
-	
-	return startCell
-end
-
-local function SetStartAndModifyCellTiers_SetPoint(cells, edgesSorted, waveFunc, waveMult, params)
+local function SetStartAndModifyCellTiers_SetPoint(cells, edgesSorted, waveFunc, waveMult, tierConst, tierHeight, params)
 	local startCell = GetClosestCell(params.startPoint, cells)
 	SetStartboxDataFromPolygon(GetCellVertices(startCell))
+	
+	local minLandTier = max(-1 * tierConst / tierHeight)
 	
 	-- Set start cell parameters
 	startCell.isMainStartPos = true
@@ -2262,55 +2114,18 @@ local function SetStartAndModifyCellTiers_SetPoint(cells, edgesSorted, waveFunc,
 	startCell.mexMidpoint = GetMidpoint(startCell.averageMid, params.startPoint)
 	startCell.mirror.mexMidpoint = startCell.mexMidpoint
 	
-	if startCell.tier < 1 then
-		startCell.tier = 1
-		startCell.mirror.tier = 1
+	local averageTier = math.max(minLandTier, startCell.tier)
+	local averageCount = 1
+	for i = 1, #startCell.neighbours do
+		averageTier = averageTier + startCell.neighbours[i].tier
+		averageCount = averageCount + 1
 	end
+	startCell.tier = floor(averageTier / averageCount + 0.25 + random()*0.5)
 	
-	return startCell
-end
-
-local function SetIslandStart(cells, edgesSorted, waveFunc, waveMult)
-	local idealFlatness = 75
-	local acceptableFlatness = 200
-	
-	local startCell
-	local maxSizeValue
-
-	for i = 1, #edgesSorted do
-		local thisEdge = edgesSorted[i]
-		if thisEdge.innerBorderEdge then
-			local thisCell = thisEdge.faces[1]
-			if thisCell.firstMirror then
-				if not startCell then
-					-- Fallback in case none are found
-					startCell = thisEdge.faces[1]
-				end
-				if (thisCell.tier >= -1) then
-					local heightDiff, cheapDeviation = EstimateHeightDiff(thisCell.averageMid, 700, waveFunc, waveMult)
-					local flatness = heightDiff*cheapDeviation
-					if flatness < acceptableFlatness then
-						local cellSizeValue = thisCell.area * thisEdge.length
-						if flatness > idealFlatness then
-							cellSizeValue = cellSizeValue*(1 - (flatness - idealFlatness)/(acceptableFlatness - idealFlatness))
-						end
-						if (not maxSizeValue) or (cellSizeValue > maxSizeValue) then
-							startCell = thisEdge.faces[1]
-							maxSizeValue = cellSizeValue
-						end
-					end
-				end
-			end
-		end
+	if startCell.tier < minLandTier then
+		startCell.tier = minLandTier
 	end
-	
-	SetStartboxDataFromPolygon(startCell.vertices)
-	
-	-- Set start cell parameters
-	startCell.isMainStartPos = true
-	startCell.isStartPos = true
-	startCell.mirror.isMainStartPos = startCell.isMainStartPos
-	startCell.mirror.isStartPos = startCell.isStartPos
+	startCell.mirror.tier = startCell.tier
 	
 	return startCell
 end
@@ -2687,7 +2502,11 @@ local function GetTerrainStructure(params)
 	
 	local tierConst, tierHeight, tierMin, tierMax = GenerateCellTiers(params, cells, waveFunc)
 	
-	local startCell = params.StartPositionFunc(cells, edgesSorted, waveFunc, GetWaveHeightMult(tierMin, tierMax, params), params)
+	local startCell = params.StartPositionFunc(cells, edgesSorted, waveFunc, GetWaveHeightMult(tierMin, tierMax, params), tierConst, tierHeight, params)
+	
+	for i = 1, #cells do
+		PointEcho(cells[i].site, "Tier " .. cells[i].tier) 
+	end
 	
 	tierMin, tierMax = GenerateEdgePassability(params, edgesSorted, tierMin, tierMax)
 	AllocateMetalSpots(cells, edges, startCell, params)
@@ -2759,7 +2578,7 @@ local newParams = {
 local function MakeMap()
 	local params = newParams
 	local randomSeed = GetSeed()
-	--randomSeed = 44911
+	--randomSeed = 81767
 	math.randomseed(randomSeed)
 
 	Spring.SetGameRulesParam("typemap", "temperate2")
@@ -2772,7 +2591,6 @@ local function MakeMap()
 	end
 	
 	EchoProgress("Map Terrain Generation")
-	Spring.Echo("Random Seed", randomSeed)
 	Spring.Echo("Random Seed", randomSeed)
 	
 	local cells, edges, edgesSorted, heightMod, waveFunc, tiers, tierConst, tierHeight, tierMin, tierMax, startCell = GetTerrainStructure(params)
