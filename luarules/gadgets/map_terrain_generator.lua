@@ -2050,16 +2050,19 @@ local function SetEdgeSoloTerrain(params, edge)
 	local otherTier = edge.lowTier + 1
 	local width = 0.21*edge.length + 60 + 160*random()
 	
-	local startScale = random()*0.8 - 0.35
+	local startScale = (random()*0.8 - 0.35)*params.iglooMult
 	local endScaleChange = 0.42*random() - 0.21
-	if edge.tierDiff == 0 and ((nonFlatNeighbours == 0 and random() < 0.4) or (nonFlatNeighbours == 1 and random() < 0.28) or (random() < 0.04)) then
+	if edge.tierDiff == 0 and (
+			(nonFlatNeighbours == 0 and random() < 0.4*params.iglooMult) or 
+			(nonFlatNeighbours == 1 and random() < 0.28*params.iglooMult) or 
+			(random() < 0.04*params.iglooMult)) then
 		local sign = ((startScale > 0) and 1) or -1
 		width = width*0.9 + 40
 		startScale = 0.3*sign + 0.8*startScale
 		startScale = startScale*(0.9 + math.min(0.5, width*0.0004))
 	end
 	
-	if random() < 0.15 and startScale < 0.6 then
+	if random() < 0.15*params.iglooMult and startScale < 0.6 then
 		startScale = startScale*1.2
 	end
 	
@@ -2784,7 +2787,8 @@ local newParams = {
 	rampWidth  = 215,
 	tierHeight = 100,
 	tierConst = 35,
-	generalWaveMod = 0.8,
+	generalWaveMod = 0.7,
+	iglooMult = 0.85,
 	waveDirectMult = 0.3,
 	bucketBase = 52,
 	bucketStdMult = 0.55,

@@ -67,7 +67,13 @@ local GL_RGBA = 0x1908
 local GL_RGBA16F = 0x881A
 local GL_RGBA32F = 0x8814
 
-local COLOR_TEX_LIMIT = 6
+local BLACK_TEX = 1
+local SPIDER_TEX = 5
+local BOT_TEX = 5
+local VEH_TEX = 20
+local VEH_SAMPLE_RANGE = 2.5
+local VEH_HEIGHT_MAX = 360
+local VEH_HEIGHT_MIN = -40
 
 local floor  = math.floor
 local random = math.random
@@ -198,16 +204,9 @@ local function SetMapTexture(texturePool, mapTexX, mapTexZ, topTexX, topTexZ, to
 			for i = 1, #texturePool do
 				local texX = mapTexX[i]
 				local texZ = mapTexZ[i]
-				if i == COLOR_TEX_LIMIT then
-					glColor(1, 1, 1, 1)
-				end
 				if texX then
 					glTexture(texturePool[i].texture)
 					for j = 1, #texX do
-						if i < COLOR_TEX_LIMIT then
-							local prop = math.max(0, math.min(1, (mapHeight[texX[j]][texZ[j]] - 15)/340))
-							glColor(0.64 + 0.3*(1 - prop), 0.68 + 0.34*prop, 0.82 + 0.13*(1 - prop), 0.88 + 0.6*(1 - prop))
-						end
 						glTexRect(texX[j]*MAP_FAC_X - 1, texZ[j]*MAP_FAC_Z - 1,
 							texX[j]*MAP_FAC_X + DRAW_OFFSET, texZ[j]*MAP_FAC_Z + DRAW_OFFSET)
 					end
@@ -420,33 +419,17 @@ local function GetSplatTex(height, vehiclePass, botPass, inWater)
 end
 
 local function GetMainTex(height, vehiclePass, botPass, inWater)
-	if inWater then
-		if vehiclePass then
-			return 17
-		end
-		if botPass then
-			return 18
-		end
-		return 19
-	end
 	if vehiclePass then
-		return 1 + floor(random()*5)
+		local prop = math.max(0, math.min(1, (height + VEH_HEIGHT_MIN)/(VEH_HEIGHT_MAX - VEH_HEIGHT_MIN)))
+		return BLACK_TEX + SPIDER_TEX + BOT_TEX + 1 + floor(prop*(VEH_TEX - VEH_SAMPLE_RANGE) + random()*VEH_SAMPLE_RANGE)
 	end
 	if botPass then
-		return 6 + floor(random()*5)
+		return BLACK_TEX + SPIDER_TEX + 1 + floor(random()*BOT_TEX)
 	end
-	return random(11, 15)
+	return BLACK_TEX + 1 + floor(random()*SPIDER_TEX)
 end
 
-local function GetTopTex(normal, height, vehiclePass, botPassPlus, botPass, inWater)
-	if inWater and height < SHALLOW_HEIGHT then
-		if height < SHALLOW_HEIGHT then
-			return
-		end
-		local prop = math.max(1, math.min(1, (height - SHALLOW_HEIGHT)/80))
-		return 16, 0.5 + 0.5*prop
-	end
-	
+local function GetTopTex(normal, height, vehiclePass, botPassPlus, botPass)
 	local minNorm, maxNorm, topTex
 	if vehiclePass then
 		topTex = GetMainTex(height, false, true)
@@ -458,7 +441,7 @@ local function GetTopTex(normal, height, vehiclePass, botPassPlus, botPass, inWa
 		topTex = GetMainTex(height, false, false)
 		minNorm, maxNorm = BOT_NORMAL, BOT_NORMAL_PLUS
 	else
-		topTex = 16
+		topTex = BLACK_TEX
 		minNorm, maxNorm = 0, BOT_NORMAL
 	end
 	
@@ -530,10 +513,10 @@ local function GetSlopeTexture(x, z)
 	local vehiclePass = (normal > VEH_NORMAL)
 	local botPass     = (normal > BOT_NORMAL)
 	local botPassPlus = (normal > BOT_NORMAL_PLUS)
-	local inWater     = false and (height < 6)
+	local inWater     = (height < 6)
 	
-	local topTex, topAlpha = GetTopTex(normal, height, vehiclePass, botPassPlus, botPass, inWater)
-	local mainTex = GetMainTex(height, botPassPlus, botPass, inWater)
+	local topTex, topAlpha = GetTopTex(normal, height, vehiclePass, botPassPlus, botPass)
+	local mainTex = GetMainTex(height, botPassPlus, botPass)
 	local splatTex = GetSplatTex(height, vehiclePass, botPass, inWater)
 	
 	return mainTex, splatTex, topTex, topAlpha, height
@@ -590,108 +573,40 @@ local function SetupTextureSet(textureSetName)
 	local usetextureSet = textureSetName .. '/'
 	local texturePath = 'unittextures/tacticalview/' .. usetextureSet
 	
-	return {
+	local added = 1
+	local textures = {
 		[1] = {
-			texture = texturePath.."v1.png",
-			size = 92,
-			tile = 1,
-		},
-		[2] = {
-			texture = texturePath.."v2.png",
-			size = 92,
-			tile = 1,
-		},
-		[3] = {
-			texture = texturePath.."v3.png",
-			size = 92,
-			tile = 1,
-		},
-		[4] = {
-			texture = texturePath.."v4.png",
-			size = 92,
-			tile = 1,
-		},
-		[5] = {
-			texture = texturePath.."v5.png",
-			size = 92,
-			tile = 1,
-		},
-		[6] = {
-			texture = texturePath.."b5.png",
-			size = 92,
-			tile = 1,
-		},
-		[7] = {
-			texture = texturePath.."b1.png",
-			size = 92,
-			tile = 1,
-		},
-		[8] = {
-			texture = texturePath.."b2.png",
-			size = 92,
-			tile = 1,
-		},
-		[9] = {
-			texture = texturePath.."b3.png",
-			size = 92,
-			tile = 1,
-		},
-		[10] = {
-			texture = texturePath.."b4.png",
-			size = 92,
-			tile = 1,
-		},
-		[11] = {
-			texture = texturePath.."n1.png",
-			size = 92,
-			tile = 1,
-		},
-		[12] = {
-			texture = texturePath.."n2.png",
-			size = 92,
-			tile = 1,
-		},
-		[13] = {
-			texture = texturePath.."n3.png",
-			size = 92,
-			tile = 1,
-		},
-		[14] = {
-			texture = texturePath.."n4.png",
-			size = 92,
-			tile = 1,
-		},
-		[15] = {
-			texture = texturePath.."n5.png",
-			size = 92,
-			tile = 1,
-		},
-		[16] = {
 			texture = texturePath.."m.png",
 			size = 92,
 			tile = 1,
-		},
-		[17] = {
-			texture = texturePath.."uwv.png",
-			size = 92,
-			tile = 1,
-		},
-		[18] = {
-			texture = texturePath.."uwb.png",
-			size = 92,
-			tile = 1,
-		},
-		[19] = {
-			texture = texturePath.."uwn.png",
-			size = 92,
-			tile = 1,
-		},
-		[20] = {
-			texture = texturePath.."uwm.png",
-			size = 92,
-			tile = 1,
-		},
+		}
 	}
+	
+	for i = 1, SPIDER_TEX do
+		added = added + 1
+		textures[added] = {
+			texture = texturePath .. "n" .. i .. ".png",
+			size = 92,
+			tile = 1,
+		}
+	end
+	for i = 1, BOT_TEX do
+		added = added + 1
+		textures[added] = {
+			texture = texturePath .. "b" .. i .. ".png",
+			size = 92,
+			tile = 1,
+		}
+	end
+	for i = 1, VEH_TEX do
+		added = added + 1
+		textures[added] = {
+			texture = texturePath .. "v" .. i .. ".png",
+			size = 92,
+			tile = 1,
+		}
+	end
+	return textures
 end
 
 --------------------------------------------------------------------------------
