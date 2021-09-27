@@ -1198,7 +1198,7 @@ end
 
 local function GetTerrainWaveFunction(params)
 	local multParams = {
-		scaleMin = 0.3 + 0.4*params.generalWaveMod,
+		scaleMin = 0.65,
 		scaleMax = 0.8,
 		periodMin = 2000,
 		periodMax = 5000 - 1500*params.generalWaveMod,
@@ -1217,7 +1217,7 @@ local function GetTerrainWaveFunction(params)
 	}
 	
 	local translateParams = {
-		scaleMin = 30 + 20*params.generalWaveMod,
+		scaleMin = 60,
 		scaleMax = 60 + 20*params.generalWaveMod,
 		periodMin = 1800,
 		periodMax = 3000,
@@ -1236,7 +1236,7 @@ local function GetTerrainWaveFunction(params)
 	}
 	
 	local rotParams = {
-		scaleMin = 30 + 20*params.generalWaveMod,
+		scaleMin = 60,
 		scaleMax = 60 + 20*params.generalWaveMod,
 		periodMin = 1800,
 		periodMax = 4000,
@@ -1253,7 +1253,7 @@ local function GetTerrainWaveFunction(params)
 	}
 
 	local bigMultParams = {
-		scaleMin = 0.7 + 0.2*params.generalWaveMod,
+		scaleMin = 0.9,
 		scaleMax = 1 + 0.2*params.generalWaveMod,
 		periodMin = 18000,
 		periodMax = 45000,
@@ -1918,17 +1918,19 @@ local function SetEdgePassability(params, edge, minLandTier)
 	
 	local pointAtBorder = (edge.faces[1].adjacentToBorder and edge.faces[2] and edge.faces[2].adjacentToBorder)
 	
-	if edge.underwater then
-		-- Make a bot pathable ramp.
+	if edge.underwater or (edge.lowTier < minLandTier and edge.tierDiff <= 1) then
+		-- Always make a ramp.
 		edge.terrainWidth = params.rampWidth
 	elseif edge.lowTier < minLandTier and edge.tierDiff >= 2 then
 		-- Make a ramp 95% of the time
 		edge.terrainWidth = ((0.95 < random()) and params.rampWidth) or params.cliffWidth
-	elseif edge.length < 600 and ((impassCount == 0) or (matchCount - impassCount == 0)) then
+	elseif edge.length < 600 and ((impassCount == 0) or (matchCount*0.7 - impassCount >= 0)) and not IsEdgeAdjacentToStart(edge) and random() < ((pointAtBorder and 0.3) or 0.75) then
 		-- Make a cliff on short high tier difference edges
 		edge.terrainWidth = ((impassCount == 0) and params.rampWidth) or params.cliffWidth
 	elseif edge.tierDiff <= 1 then
-		if pointAtBorder then
+		if IsEdgeAdjacentToStart(edge) then
+			edge.terrainWidth = params.rampWidth
+		elseif pointAtBorder then
 			edge.terrainWidth = ((0.85 < random()) and params.rampWidth) or params.cliffWidth
 		else
 			edge.terrainWidth = ((0.65 < random()) and params.rampWidth) or params.cliffWidth
@@ -1975,8 +1977,6 @@ local function SetEdgeSoloTerrain(params, edge)
 	end
 	
 	if IsEdgeAdjacentToStart(edge) then
-		return
-	elseif #edge.faces == 2 and edge.faces[1].isStartPos and edge.faces[2].isStartPos then
 		return
 	end
 	
@@ -2099,10 +2099,11 @@ local function SetEdgeSoloTerrain(params, edge)
 	end
 	
 	-- Prevent long large and high igloos.
-	if edge.length > 250 and abs(startScale*effectMult) > 1.3*width/edge.length then
-		effectMult = effectMult*(1.3*width/edge.length)/abs(startScale*effectMult)
+	if edge.length > 220 and abs(1.15*startScale*effectMult) > width/edge.length then
+		effectMult = effectMult*(width/edge.length)/abs(1.15*startScale*effectMult)
 	end
 	
+	effectMult = effectMult*params.iglooHeightMult
 	edge.soloTerrainParams = {
 		startScale = startScale*effectMult,
 		endScale = (startScale + endScaleChange)*effectMult,
@@ -2771,25 +2772,26 @@ local toDrawEdges = nil
 local waitCount = 0
 
 local newParams = {
-	startPoint = {500, 500},
-	startPointSize = 800,
-	points = 22,
+	startPoint = {550, 550},
+	startPointSize = 750,
+	points = 21,
 	midPoints = 3,
 	midPointRadius = 900,
 	midPointSpace = 180,
 	minSpace = 150,
 	maxSpace = 350,
-	pointSplitRadius = 500,
-	edgeBias = 1.4,
+	pointSplitRadius = 510,
+	edgeBias = 1.35,
 	flatNeighbourIgloo = 680,
 	lowDiffNeighbourIgloo = 540,
 	highDiffNeighbourIgloo = 320,
 	cliffWidth = 36,
-	rampWidth  = 215,
-	tierHeight = 104,
+	rampWidth  = 230,
+	tierHeight = 100,
 	tierConst = 32,
-	generalWaveMod = 0.82,
+	generalWaveMod = 0.8,
 	iglooMult = 0.92,
+	iglooHeightMult = 0.9,
 	waveDirectMult = 0.3,
 	bucketBase = 52,
 	bucketStdMult = 0.55,
@@ -2803,7 +2805,7 @@ local newParams = {
 	forcedMidMexes = 1,
 	forcedMinMexRadius = 1000,
 	emptyAreaMexes = 2,
-	emptyAreaMexRadius = 1200,
+	emptyAreaMexRadius = 1150,
 	predefinedMexes = {
 		{1500, 550},
 		{550, 1500},

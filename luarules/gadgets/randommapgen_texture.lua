@@ -40,7 +40,7 @@ local BLOCK_SIZE  = 4
 local DRAW_OFFSET = 2 * BLOCK_SIZE/MAP_Z - 1
 
 local VEH_NORMAL      = 0.892
-local BOT_NORMAL_PLUS = 0.81
+local BOT_NORMAL_PLUS = 0.85
 local BOT_NORMAL      = 0.585
 local SHALLOW_HEIGHT  = -22
 
@@ -72,7 +72,7 @@ local SPIDER_TEX = 5
 local BOT_TEX = 5
 local VEH_TEX = 20
 local VEH_SAMPLE_RANGE = 1.8
-local VEH_HEIGHT_MAX = 370
+local VEH_HEIGHT_MAX = 360
 local VEH_HEIGHT_MIN = -50
 
 local floor  = math.floor
@@ -456,7 +456,7 @@ local function GetTopTex(normal, height, vehiclePass, botPassPlus, botPass)
 	elseif botPassPlus then
 		topAlpha = textureProp*1.5
 	elseif botPass then
-		topAlpha = math.max(0, 0.4*(textureProp - 0.6))
+		topAlpha = math.max(0, 2.1*(textureProp - 0.6))
 	else
 		if textureProp > 0.4 then
 			topAlpha = 0.1
@@ -489,9 +489,10 @@ local function GetTopTex(normal, height, vehiclePass, botPassPlus, botPass)
 		end
 		topAlpha = math.min(1, topAlpha)
 	elseif botPass then
-		if height%24 > 17 then
-			local prop = math.max(0, 0.4*(textureProp - 0.6))
+		if height%24 > 23 - 9*textureProp then
+			local prop = math.max(0, 1.2*(textureProp - 0.1))
 			topAlpha = (1 - topAlpha)*prop + (1 - topAlpha)*prop
+			topAlpha = math.min(1, topAlpha)
 		end
 	else
 		local modHeight = (height -2 + 4*math.random())%54
@@ -571,40 +572,33 @@ end
 --------------------------------------------------------------------------------
 
 local function SetupTextureSet(textureSetName)
-	local usetextureSet = textureSetName .. '/'
-	local texturePath = 'unittextures/tacticalview/' .. usetextureSet
+	local usetextureSet = textureSetName 
+	local texturePath = 'unittextures/tacticalview/' .. usetextureSet.. '/'
 	
-	local added = 1
-	local textures = {
-		[1] = {
-			texture = texturePath.."m.png",
-			size = 92,
-			tile = 1,
-		}
+	local added = 0
+	local textures = {}
+	
+	added = added + 1
+	textures[added] = {
+		texture = texturePath.."m.png",
 	}
 	
 	for i = 1, SPIDER_TEX do
 		added = added + 1
 		textures[added] = {
 			texture = texturePath .. "n" .. i .. ".png",
-			size = 92,
-			tile = 1,
 		}
 	end
 	for i = 1, BOT_TEX do
 		added = added + 1
 		textures[added] = {
 			texture = texturePath .. "b" .. i .. ".png",
-			size = 92,
-			tile = 1,
 		}
 	end
 	for i = 1, VEH_TEX do
 		added = added + 1
 		textures[added] = {
 			texture = texturePath .. "v" .. i .. ".png",
-			size = 92,
-			tile = 1,
 		}
 	end
 	return textures
