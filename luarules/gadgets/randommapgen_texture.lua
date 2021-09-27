@@ -40,7 +40,7 @@ local BLOCK_SIZE  = 4
 local DRAW_OFFSET = 2 * BLOCK_SIZE/MAP_Z - 1
 
 local VEH_NORMAL      = 0.892
-local BOT_NORMAL_PLUS = 0.81
+local BOT_NORMAL_PLUS = 0.82
 local BOT_NORMAL      = 0.585
 local SHALLOW_HEIGHT  = -22
 
@@ -473,7 +473,7 @@ local function GetTopTex(normal, height, vehiclePass, botPassPlus, botPass, inWa
 	elseif botPassPlus then
 		topAlpha = textureProp
 	elseif botPass then
-		topAlpha = 0.9*textureProp*textureProp
+		topAlpha = 0.4*textureProp*textureProp
 	else
 		if textureProp > 0.4 then
 			topAlpha = 0.1
@@ -495,15 +495,16 @@ local function GetTopTex(normal, height, vehiclePass, botPassPlus, botPass, inWa
 		local modHeight = height%7
 		if modHeight > 6.5 then
 			local prop = 1 - (modHeight - 6)*2
-			topAlpha = textureProp*(0.1 + 0.2*prop) + (0.9 - 0.2*prop)
+			topAlpha = textureProp*(0.25 + 0.2*prop) + (0.9 - 0.2*prop)
 		elseif modHeight > 4.5 then
-			topAlpha = textureProp*0.3 + 0.7
+			topAlpha = textureProp*0.45 + 0.7
 		elseif modHeight > 4 then
 			local prop = (modHeight - 4)*2
-			topAlpha = textureProp*(0.1 + 0.2*prop) + (0.9 - 0.2*prop)
+			topAlpha = textureProp*(0.25 + 0.2*prop) + (0.9 - 0.2*prop)
 		else
-			topAlpha = textureProp*0.1 + 0.9
+			topAlpha = textureProp*0.25 + 0.9
 		end
+		topAlpha = math.min(1, topAlpha)
 	elseif botPass then
 		if height%24 > 17 then
 			topAlpha = (1 - topAlpha)*textureProp + (1 - topAlpha)*textureProp

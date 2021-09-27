@@ -121,9 +121,9 @@ local useShadingTextures = Spring.GetConfigInt("AdvMapShading") == 1
 			fogColor = {0, 0, 0, 1},
 			}
 			sparams = {
-			["groundDiffuseColor"]= {0.47142857, 0.43809524, 0.38095239, 1},
-			["groundAmbientColor"]= {0.38571429, 0.36190477, 0.30952382, 1},
-			["groundSpecularColor"]= {0.07619048, 0.06190476, 0.07142857, 1},
+			["groundDiffuseColor"]= {0.30952382, 0.3904762, 0.38095239, 1},
+			["groundAmbientColor"]= {0.38571429, 0.41428572, 0.33809525, 1},
+			["groundSpecularColor"]= {0.10476191, 0.04285714, 0.07142857, 1},
 			}
 		end
 		Spring.SetAtmosphere(aparams)

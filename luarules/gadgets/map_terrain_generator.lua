@@ -2403,10 +2403,10 @@ local function AllocateMetalSpots(cells, edges, minLandTier, startCell, params)
 				thisCell.mexAlloc = 0
 			elseif thisCell.isMainStartPos then
 				thisCell.metalSpots = 3
-				thisCell.metalDist = 210
+				thisCell.metalDist = 220
 				wantedMexes = wantedMexes - thisCell.metalSpots
 			else
-				thisCell.mexAlloc = thisCell.startPathFactor*0.6 + thisCell.startDistFactor*0.4 + thisCell.closeDistFactor*1.6 - 0.1
+				thisCell.mexAlloc = thisCell.startPathFactor*0.6 + thisCell.startDistFactor*0.4 + thisCell.closeDistFactor*1.3 - 0.1
 				if diffDist and diffDist <= 1 then
 					thisCell.mexAlloc = thisCell.mexAlloc + 0.5
 				end
@@ -2415,7 +2415,7 @@ local function AllocateMetalSpots(cells, edges, minLandTier, startCell, params)
 					thisCell.adjacentToStart = true
 				end
 				if thisCell.adjacentToBorder then
-					thisCell.mexAlloc = thisCell.mexAlloc + 0.18
+					thisCell.mexAlloc = thisCell.mexAlloc + 0.22
 				end
 				if thisCell.adjacentToCorner then
 					thisCell.mexAlloc = thisCell.mexAlloc - 0.1
@@ -2462,36 +2462,37 @@ local function AllocateMetalSpots(cells, edges, minLandTier, startCell, params)
 		end
 		
 		totalMexAlloc = ReduceMexAllocation(mexCell, totalMexAlloc, 0)
-		local neighbourFactor = 0.3
+		local neighbourFactor = 0.45
 		for i = 1, #mexCell.neighbours do
 			totalMexAlloc = ReduceMexAllocation(mexCell.neighbours[i], totalMexAlloc, neighbourFactor)
 		end
 		mexCell.metalSpots = (mexCell.metalSpots or 0) + mexAssignment
 		if mexAssignment == 2 then
-			mexCell.metalDist = 170
-		elseif (mexCell.mirror and distBetweenMirror > 2200) then
-			mexCell.metalDist = ((random() > 0.25 and 620) or 170) -- Whether to allow grouped mexes.
+			mexCell.metalDist = 180
+		elseif (mexCell.mirror and distBetweenMirror > 2000) then
+			mexCell.metalDist = ((random() > 0.25 and 580) or 180) -- Whether to allow grouped mexes.
 		else
-			mexCell.metalDist = 750
+			local dist = (mexCell.mirror and distBetweenMirror)
+			mexCell.metalDist = 580 + 280*(1 - dist/2000)
 		end
 		
 		wantedMexes = wantedMexes - mexAssignment
 	end
 	
-	for i = 1, #cells do
-		local thisCell = cells[i]
-		local text = (thisCell.landBotDist or "NONE") .. ", " .. (thisCell.mirror.landBotDist or "NONE")
-		--PointEcho(thisCell.averageMid, "Dist: " .. text .. (((thisCell.unreachable or thisCell.mirror.unreachable) and ", UNREACHABLE") or ""))
-	end
+	--for i = 1, #cells do
+	--	local thisCell = cells[i]
+	--	local text = (thisCell.landBotDist or "NONE") .. ", " .. (thisCell.mirror.landBotDist or "NONE")
+	--	PointEcho(thisCell.averageMid, "Dist: " .. text .. (((thisCell.unreachable or thisCell.mirror.unreachable) and ", UNREACHABLE") or ""))
+	--end
 end
 
-local function GetRandomMexPos(mexes, smoothHeights, avoidDist, edges, pos, megaMex)
+local function GetRandomMexPos(mexes, smoothHeights, avoidDist, pos)
 	local placeRadius = 120
-	local placeIncrement = 25
+	local placeIncrement = 15
 	
 	local tries = 0
-	while tries < 150 do
-		local randomPoint = GetRandomPointInCircle(pos, placeRadius, placeRadius)
+	while tries < 250 do
+		local randomPoint = GetRandomPointInCircle(pos, placeRadius, 150)
 		local _, pointDist = GetClosestPoint(randomPoint, mexes)
 		if (not pointDist) or (avoidDist < pointDist) then
 			if SufficientlyFlat(randomPoint, smoothHeights, 52, 11, 3) then
@@ -2505,8 +2506,8 @@ local function GetRandomMexPos(mexes, smoothHeights, avoidDist, edges, pos, mega
 	return false
 end
 
-local function PlaceMex(mexes, smoothHeights, avoidDist, edges, pos, megaMex)
-	local mexPos = GetRandomMexPos(mexes, smoothHeights, avoidDist, edges, pos, megaMex)
+local function PlaceMex(mexes, smoothHeights, avoidDist, pos)
+	local mexPos = GetRandomMexPos(mexes, smoothHeights, avoidDist, pos)
 	if not mexPos then
 		return
 	end
@@ -2529,19 +2530,31 @@ local function PlaceMex(mexes, smoothHeights, avoidDist, edges, pos, megaMex)
 	end
 end
 
-local function PlaceMetalSpots(cells, smoothHeights)
+local function PlaceMetalSpots(cells, smoothHeights, params)
 	local mexes = {}
+	-- Add predefined mexes first.
+	for i = 1, #params.predefinedMexes do
+		PlaceMex(mexes, smoothHeights, 280, params.predefinedMexes[i])
+	end
+	
+	-- Add cell mexes
 	for i = 1, #cells do
 		local thisCell = cells[i]
 		if thisCell.firstMirror then
 			if thisCell.megaMex then
-				PlaceMex(mexes, smoothHeights, thisCell.metalDist, thisCell.edges, thisCell.mexMidpoint or thisCell.averageMid, true)
+				PlaceMex(mexes, smoothHeights, thisCell.metalDist, thisCell.mexMidpoint or thisCell.averageMid)
 			elseif thisCell.metalSpots then
 				for j = 1, thisCell.metalSpots do
-					PlaceMex(mexes, smoothHeights, thisCell.metalDist, thisCell.edges, thisCell.mexMidpoint or thisCell.averageMid, false)
+					PlaceMex(mexes, smoothHeights, thisCell.metalDist, thisCell.mexMidpoint or thisCell.averageMid)
 				end
 			end
 		end
+	end
+	
+	-- Add mexes to very empty areas of the map.
+	for i = 1, params.emptyAreaMexes do
+		local point = GetRandomMapCoord(params.emptyAreaMexRadius, mexes, 120, false, 1.1)
+		PlaceMex(mexes, smoothHeights, params.emptyAreaMexRadius - 350, point)
 	end
 end
 
@@ -2678,8 +2691,8 @@ local newParams = {
 	startPoint = {500, 500},
 	startPointSize = 800,
 	points = 22,
-	midPoints = 2,
-	midPointRadius = 820,
+	midPoints = 3,
+	midPointRadius = 900,
 	midPointSpace = 180,
 	minSpace = 150,
 	maxSpace = 350,
@@ -2701,9 +2714,15 @@ local newParams = {
 	StartPositionFunc = SetStartAndModifyCellTiers_SetPoint,
 	borderIgloos = true,
 	--forceFord = true, -- To implement
-	baseMexesPerSide = 17,
+	baseMexesPerSide = 16,
 	forcedMidMexes = 1,
 	forcedMinMexRadius = 1000,
+	emptyAreaMexes = 3,
+	emptyAreaMexRadius = 1200,
+	predefinedMexes = {
+		{1500, 550},
+		{550, 1500},
+	},
 }
 
 local function MakeMap()
@@ -2730,7 +2749,7 @@ local function MakeMap()
 	local smoothHeights = MakeHeightmap(cells, edges, heightMod, waveFunc, tiers, tierConst, tierHeight, tierMin, tierMax, params)
 	
 	ApplyTreeDensity(cells)
-	PlaceMetalSpots(cells, smoothHeights)
+	PlaceMetalSpots(cells, smoothHeights, params)
 	
 	EchoProgress("Metal generation complete")
 end
