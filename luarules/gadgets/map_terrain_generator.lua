@@ -1751,7 +1751,16 @@ local function IsEdgeAdjacentToStart(edge)
 	end
 end
 
-local function ChangeCellTierIfHomogenousNeighbours(cell, tierMin, tierMax)
+local function SetCellTier(cell, tier, tierConst, tierHeight)
+	cell.tier = tier
+	cell.height = tier*tierHeight + tierConst
+	if cell.mirror then
+		cell.mirror.tier = cell.tier
+		cell.mirror.height = cell.height
+	end
+end
+
+local function ChangeCellTierIfHomogenousNeighbours(cell, tierConst, tierHeight, tierMin, tierMax)
 	local myTier = cell.tier
 	local nbhd = cell.neighbours
 	for i = 1, #nbhd do
@@ -1761,15 +1770,38 @@ local function ChangeCellTierIfHomogenousNeighbours(cell, tierMin, tierMax)
 	end
 	
 	local newTier = myTier + ((random() > 0.5 and 1) or -1)
-	cell.tier = newTier
 	tierMin = min(newTier, tierMin)
 	tierMax = max(newTier, tierMax)
 	
-	if cell.mirror then
-		cell.mirror.tier = newTier
-	end
+	SetCellTier(cell, newTier, tierConst, tierHeight)
 	
 	return tierMin, tierMax
+end
+
+local function FillInLargeBodiesOfWater(cells, tierConst, tierHeight, minLandTier, limit)
+	local thingsToDo = true
+	
+	while thingsToDo do
+		thingsToDo = false
+		for i = 1, #cells do
+			local cell = cells[i]
+			if (not cell.adjacentToBorder) and cell.tier < minLandTier then
+				local nearbyWaterCount = 0
+				local nbhd = cell.neighbours
+				for j = 1, #nbhd do
+					local otherCell = nbhd[j]
+					if (cell.mirror and cell.mirror.index ~= otherCell.index) and otherCell.tier < minLandTier then
+						nearbyWaterCount = nearbyWaterCount + 1
+						if nearbyWaterCount > limit then
+							SetCellTier(cell, minLandTier, tierConst, tierHeight)
+							thingsToDo = true
+							break
+						end
+					end
+				end
+			end
+		end
+	end
 end
 
 local function GenerateCellTiers(params, cells, waveFunc)
@@ -1805,24 +1837,25 @@ local function GenerateCellTiers(params, cells, waveFunc)
 			tier = params.mapBorderTier
 		end
 		
-		cell.tier = tier
-		cell.height = tier*tierHeight + tierConst
-		if cell.mirror then
-			cell.mirror.tier = cell.tier
-			cell.mirror.height = cell.height
-		end
+		SetCellTier(cell, tier, tierConst, tierHeight)
 		
 		tierMin = min(tier, tierMin)
 		tierMax = max(tier, tierMax)
 	end
+	local minLandTier = max(-1 * tierConst / tierHeight)
 	
 	-- Randomly change tiers of flat areas
 	for i = 1, #cells do
 		local cell = cells[i]
-		tierMin, tierMax = ChangeCellTierIfHomogenousNeighbours(cell, tierMin, tierMax)
+		tierMin, tierMax = ChangeCellTierIfHomogenousNeighbours(cell, tierConst, tierHeight, tierMin, tierMax)
 	end
 	
-	return tierConst, tierHeight, tierMin, tierMax
+	-- Cut down on water cells.
+	if params.nonBorderSeaNeighbourLimit then
+		FillInLargeBodiesOfWater(cells, tierConst, tierHeight, minLandTier, params.nonBorderSeaNeighbourLimit)
+	end
+	
+	return tierConst, tierHeight, tierMin, tierMax, minLandTier
 end
 
 local function SetEdgePassability(params, edge, minLandTier)
@@ -1970,7 +2003,7 @@ local function SetEdgeSoloTerrain(params, edge)
 	local otherTier = edge.lowTier + 1
 	local width = 0.21*edge.length + 60 + 160*random()
 	
-	local startScale = random() - 0.45
+	local startScale = random()*0.7 - 0.35
 	local endScaleChange = 0.42*random() - 0.21
 	if edge.tierDiff == 0 and ((nonFlatNeighbours == 0 and random() < 0.48) or (nonFlatNeighbours == 1 and random() < 0.35) or (random() < 0.12)) then
 		local sign = ((startScale > 0) and 1) or -1
@@ -2015,8 +2048,8 @@ local function SetEdgeSoloTerrain(params, edge)
 	end
 	
 	-- Prevent long large and high igloos.
-	if edge.length > 400 and abs(startScale*effectMult) > width/edge.length then
-		effectMult = effectMult*(width/edge.length)/abs(startScale*effectMult)
+	if edge.length > 250 and abs(startScale*effectMult) > 1.3*width/edge.length then
+		effectMult = effectMult*(1.3*width/edge.length)/abs(startScale*effectMult)
 	end
 	
 	edge.soloTerrainParams = {
@@ -2319,7 +2352,7 @@ local function AllocateMetalSpots(cells, edges, minLandTier, startCell, params)
 	
 	local isTeamGame = Spring.Utilities.Gametype and Spring.Utilities.Gametype.isTeams and Spring.Utilities.Gametype.isTeams()
 	local isBigTeamGame = Spring.Utilities.Gametype and Spring.Utilities.Gametype.isTeams and Spring.Utilities.Gametype.isBigTeams()
-	local wantedMexes = params.baseMexesPerSide + floor(random()*4) + ((isTeamGame and 2) or 0) + ((isBigTeamGame and 3) or 0)
+	local wantedMexes = params.baseMexesPerSide + floor(random()*2) + ((isTeamGame and 1) or 0) + ((isBigTeamGame and 2) or 0)
 	
 	local minPathDiff, maxPathDiff
 	local minDistSum, maxDistSum
@@ -2406,7 +2439,7 @@ local function AllocateMetalSpots(cells, edges, minLandTier, startCell, params)
 				thisCell.metalDist = 220
 				wantedMexes = wantedMexes - thisCell.metalSpots
 			else
-				thisCell.mexAlloc = thisCell.startPathFactor*0.6 + thisCell.startDistFactor*0.4 + thisCell.closeDistFactor*1.3 - 0.1
+				thisCell.mexAlloc = thisCell.startPathFactor*0.6 + thisCell.startDistFactor*0.4 + thisCell.closeDistFactor*0.95 - 0.1
 				if diffDist and diffDist <= 1 then
 					thisCell.mexAlloc = thisCell.mexAlloc + 0.5
 				end
@@ -2415,7 +2448,7 @@ local function AllocateMetalSpots(cells, edges, minLandTier, startCell, params)
 					thisCell.adjacentToStart = true
 				end
 				if thisCell.adjacentToBorder then
-					thisCell.mexAlloc = thisCell.mexAlloc + 0.22
+					thisCell.mexAlloc = thisCell.mexAlloc + 0.5
 				end
 				if thisCell.adjacentToCorner then
 					thisCell.mexAlloc = thisCell.mexAlloc - 0.1
@@ -2455,7 +2488,7 @@ local function AllocateMetalSpots(cells, edges, minLandTier, startCell, params)
 		local mexAssignment = 1
 		local distBetweenMirror = mexCell.mirror and Dist(mexCell.averageMid, mexCell.mirror.averageMid)
 		if (not mexCell.adjacentToStart) and (mexCell.mirror and distBetweenMirror > 2000) then
-			local doubleChance = max(0.1, min(0.45, mexCell.mexAlloc*0.3))
+			local doubleChance = max(0.02, min(0.3, mexCell.mexAlloc*0.2))
 			if mexCell.mexAlloc and (random() < doubleChance) and (not mexCell.unreachable) then
 				mexAssignment = 2
 			end
@@ -2470,10 +2503,10 @@ local function AllocateMetalSpots(cells, edges, minLandTier, startCell, params)
 		if mexAssignment == 2 then
 			mexCell.metalDist = 180
 		elseif (mexCell.mirror and distBetweenMirror > 2000) then
-			mexCell.metalDist = ((random() > 0.25 and 580) or 180) -- Whether to allow grouped mexes.
+			mexCell.metalDist = ((random() > 0.1 and 680) or 180) -- Whether to allow grouped mexes.
 		else
 			local dist = (mexCell.mirror and distBetweenMirror)
-			mexCell.metalDist = 580 + 280*(1 - dist/2000)
+			mexCell.metalDist = 680 + 280*(1 - dist/2000)
 		end
 		
 		wantedMexes = wantedMexes - mexAssignment
@@ -2640,8 +2673,7 @@ local function GetTerrainStructure(params)
 	local edgesSorted = Spring.Utilities.CopyTable(edges, false)
 	table.sort(edgesSorted, CompareLength)
 	
-	local tierConst, tierHeight, tierMin, tierMax = GenerateCellTiers(params, cells, waveFunc)
-	local minLandTier = max(-1 * tierConst / tierHeight)
+	local tierConst, tierHeight, tierMin, tierMax, minLandTier = GenerateCellTiers(params, cells, waveFunc)
 	
 	local startCell = params.StartPositionFunc(cells, edgesSorted, waveFunc, GetWaveHeightMult(tierMin, tierMax, params), minLandTier, params)
 	
@@ -2711,13 +2743,14 @@ local newParams = {
 	bucketStdMult = 0.55,
 	heightOffsetFactor = 0.9,
 	mapBorderTier = false,
+	nonBorderSeaNeighbourLimit = 0, -- Only allow lone lakes.
 	StartPositionFunc = SetStartAndModifyCellTiers_SetPoint,
 	borderIgloos = true,
 	--forceFord = true, -- To implement
-	baseMexesPerSide = 16,
+	baseMexesPerSide = 11,
 	forcedMidMexes = 1,
 	forcedMinMexRadius = 1000,
-	emptyAreaMexes = 3,
+	emptyAreaMexes = 2,
 	emptyAreaMexRadius = 1200,
 	predefinedMexes = {
 		{1500, 550},
