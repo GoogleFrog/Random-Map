@@ -73,10 +73,10 @@ local floor  = math.floor
 local random = math.random
 
 local SPLAT_POOL = {
-	{0.55,0.0,0.0,0.7}, --R
-	{0.0,0.75,0.0,0.7}, --G
-	{0.0,0.0,0.75,0.7}, --B
-	{0.0,0.0,0.0,0.7}, --A
+	{0.7,0.0,0.0,0.9}, --R
+	{0.0,0.75,0.0,0.9}, --G
+	{0.0,0.0,0.75,0.9}, --B
+	{0.0,0.0,0.0,0.9}, --A
 }
 --------------------------------------------------------------------------------
 --------------------------------------------------------------------------------
@@ -205,8 +205,8 @@ local function SetMapTexture(texturePool, mapTexX, mapTexZ, topTexX, topTexZ, to
 					glTexture(texturePool[i].texture)
 					for j = 1, #texX do
 						if i < COLOR_TEX_LIMIT then
-							local prop = math.max(0, math.min(1, (mapHeight[texX[j]][texZ[j]] - 20)/400))
-							glColor(0.68 + 0.32*(1 - prop), 0.72 + 0.23*prop, 0.89 + 0.07*(1 - prop), 0.85 + 0.11*(1 - prop))
+							local prop = math.max(0, math.min(1, (mapHeight[texX[j]][texZ[j]] - 15)/340))
+							glColor(0.64 + 0.3*(1 - prop), 0.68 + 0.34*prop, 0.82 + 0.13*(1 - prop), 0.88 + 0.6*(1 - prop))
 						end
 						glTexRect(texX[j]*MAP_FAC_X - 1, texZ[j]*MAP_FAC_Z - 1,
 							texX[j]*MAP_FAC_X + DRAW_OFFSET, texZ[j]*MAP_FAC_Z + DRAW_OFFSET)
@@ -256,7 +256,7 @@ local function SetMapTexture(texturePool, mapTexX, mapTexZ, topTexX, topTexZ, to
 					if texX then
 						local red, green, blue, alpha = SPLAT_POOL[i][1], SPLAT_POOL[i][2], SPLAT_POOL[i][3], SPLAT_POOL[i][4]
 						for j = 1, #texX do
-							glColor(red + math.random()*0.25, green + math.random()*0.25, blue + math.random()*0.25, alpha + math.random()*0.3)
+							glColor(red + math.random()*0.25, green + math.random()*0.25, blue + math.random()*0.25, alpha + math.random()*0.1)
 							glRect(texX[j]*MAP_FAC_X -1, texZ[j]*MAP_FAC_Z - 1, texX[j]*MAP_FAC_X + DRAW_OFFSET, texZ[j]*MAP_FAC_Z + DRAW_OFFSET)
 						end
 					end

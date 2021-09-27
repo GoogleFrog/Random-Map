@@ -85,10 +85,10 @@ local mapinfo = {
 		sunDir        = {0.35, 1.0, 0.3, 1e9},
 
 		--// unit & ground lighting
-		groundAmbientColor  = {0.62, 0.68, 0.4},
-		groundDiffuseColor  = {0.42, 0.58, 0.385},
-		groundSpecularColor = {0.1, 0.1, 0.1},
-		groundShadowDensity = 0.8,
+		["groundDiffuseColor"]= {0.47142857, 0.43809524, 0.38095239, 1},
+		["groundAmbientColor"]= {0.38571429, 0.36190477, 0.30952382, 1},
+		["groundSpecularColor"]= {0.07619048, 0.06190476, 0.07142857, 1},
+		groundShadowDensity = 0.4,
 		unitAmbientColor    = {0.55, 0.55, 0.45},
 		unitDiffuseColor    = {0.85, 0.85, 0.85},
 		unitSpecularColor   = {0.85, 0.85, 0.85},
@@ -151,21 +151,6 @@ local mapinfo = {
 				hover = 0.9,
 				ship  = 0.9,
 			},
-		},
-	},
-
-	custom = {
-		fog = {
-			color    = {0.26, 0.30, 0.41},
-			height   = "80%", --// allows either absolue sizes or in percent of map's MaxHeight
-			fogatten = 0.003,
-		},
-		precipitation = {
-			density   = 30000,
-			size      = 1.5,
-			speed     = 50,
-			windscale = 1.2,
-			texture   = 'LuaGaia/effects/snowflake.png',
 		},
 	},
 }
