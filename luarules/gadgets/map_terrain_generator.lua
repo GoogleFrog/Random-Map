@@ -1872,7 +1872,6 @@ local function GenerateCellTiers(params, cells, waveFunc)
 			end
 			if hasSea then
 				nbhdAverage = nbhdAverage / nbhdCount
-				PointEcho(cell.site, "__________" .. nbhdAverage)
 				if nbhdAverage > minLandTier + 0.5 and nbhdAverage < minLandTier + 1.5 and random() < 0.9 then
 					SetCellTier(cell, minLandTier, tierConst, tierHeight)
 				end
@@ -1916,6 +1915,8 @@ local function SetEdgePassability(params, edge, minLandTier)
 		end
 	end
 	
+	local pointAtBorder = (edge.faces[1].adjacentToBorder and edge.faces[2] and edge.faces[2].adjacentToBorder)
+	
 	if edge.underwater then
 		-- Make a bot pathable ramp.
 		edge.terrainWidth = params.rampWidth
@@ -1926,20 +1927,27 @@ local function SetEdgePassability(params, edge, minLandTier)
 		-- Make a cliff on short high tier difference edges
 		edge.terrainWidth = ((impassCount == 0) and params.rampWidth) or params.cliffWidth
 	elseif edge.tierDiff <= 1 then
-		-- Make a ramp 65% of the time.
-		edge.terrainWidth = ((0.65 < random()) and params.rampWidth) or params.cliffWidth
+		if pointAtBorder then
+			edge.terrainWidth = ((0.85 < random()) and params.rampWidth) or params.cliffWidth
+		else
+			edge.terrainWidth = ((0.65 < random()) and params.rampWidth) or params.cliffWidth
+		end
 	else
 		-- Make a ramp 35% of the time.
 		edge.terrainWidth = ((0.35 < random()) and params.rampWidth) or params.cliffWidth
 	end
 	
 	-- Make a veh-pathable mega ramp.
-	if edge.terrainWidth >= params.rampWidth then
-		if edge.tierDiff == 2 and (random() > 0.35) then
+	if edge.terrainWidth >= params.rampWidth and edge.tierDiff <= 3 then
+		if edge.tierDiff == 2 and edge.lowTier < minLandTier and random() < 0.95 then
 			edge.terrainWidth = edge.terrainWidth*edge.tierDiff*1.4
-		end
-		if edge.tierDiff == 3 and (random() > 0.7) then
-			edge.terrainWidth = edge.terrainWidth*edge.tierDiff*1.4
+		else
+			if edge.tierDiff == 2 and (random() < 0.65 + ((pointAtBorder and 0.25) or 0)) then
+				edge.terrainWidth = edge.terrainWidth*edge.tierDiff*1.4
+			end
+			if edge.tierDiff == 3 and (random() < 0.4) then
+				edge.terrainWidth = edge.terrainWidth*edge.tierDiff*1.4
+			end
 		end
 	end
 	
@@ -2009,6 +2017,11 @@ local function SetEdgeSoloTerrain(params, edge)
 	end
 	
 	if nearCliff and #edge.faces == 1 then
+		return
+	end
+	
+	-- Do not block off a gap.
+	if nonFlatNeighbours > 2 and edge.tierDiff == 0 then
 		return
 	end
 	
@@ -2711,9 +2724,9 @@ local function GetTerrainStructure(params)
 	
 	local startCell = params.StartPositionFunc(cells, edgesSorted, waveFunc, GetWaveHeightMult(tierMin, tierMax, params), minLandTier, params)
 	
-	for i = 1, #cells do
-		PointEcho(cells[i].site, "Tier " .. cells[i].tier) 
-	end
+	--for i = 1, #cells do
+	--	PointEcho(cells[i].site, "Tier " .. cells[i].tier) 
+	--end
 	
 	tierMin, tierMax = GenerateEdgePassability(params, edgesSorted, tierMin, tierMax, minLandTier)
 	AllocateMetalSpots(cells, edges, minLandTier, startCell, params)
