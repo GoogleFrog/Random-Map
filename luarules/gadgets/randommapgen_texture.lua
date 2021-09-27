@@ -72,11 +72,11 @@ local COLOR_TEX_LIMIT = 6
 local floor  = math.floor
 local random = math.random
 
-local SPLAT_DETAIL_TEX_POOL = {
-	{0.7,0.0,0.0,1.0}, --R
-	{0.0,0.9,0.0,1.0}, --G
-	{0.0,0.0,1.0,1.0}, --B
-	{0.0,0.0,0.0,1.0}, --A
+local SPLAT_POOL = {
+	{0.55,0.0,0.0,0.7}, --R
+	{0.0,0.75,0.0,0.7}, --G
+	{0.0,0.0,0.75,0.7}, --B
+	{0.0,0.0,0.0,0.7}, --A
 }
 --------------------------------------------------------------------------------
 --------------------------------------------------------------------------------
@@ -206,7 +206,7 @@ local function SetMapTexture(texturePool, mapTexX, mapTexZ, topTexX, topTexZ, to
 					for j = 1, #texX do
 						if i < COLOR_TEX_LIMIT then
 							local prop = math.max(0, math.min(1, (mapHeight[texX[j]][texZ[j]] - 20)/400))
-							glColor(0.6 + 0.4*(1 - prop), 0.65 + 0.3*prop, 0.9 + 0.1*(1 - prop), 0.95 + 0.1*(1 - prop))
+							glColor(0.6 + 0.4*(1 - prop), 0.65 + 0.3*prop, 0.9 + 0.1*(1 - prop), 0.83 + 0.15*(1 - prop))
 						end
 						glTexRect(texX[j]*MAP_FAC_X - 1, texZ[j]*MAP_FAC_Z - 1,
 							texX[j]*MAP_FAC_X + DRAW_OFFSET, texZ[j]*MAP_FAC_Z + DRAW_OFFSET)
@@ -250,12 +250,19 @@ local function SetMapTexture(texturePool, mapTexX, mapTexZ, topTexX, topTexZ, to
 		if USE_SHADING_TEXTURE then
 			local ago2 = Spring.GetTimer()
 			glRenderToTexture(topSplattex, function ()
-				for i = 1, #SPLAT_DETAIL_TEX_POOL do
+				for i = 1, #SPLAT_POOL do
 					local texX = splatTexX[i]
 					local texZ = splatTexZ[i]
 					if texX then
-						glColor(SPLAT_DETAIL_TEX_POOL[i])
+						local red, green, blue, alpha = SPLAT_POOL[i][1], SPLAT_POOL[i][2], SPLAT_POOL[i][3], SPLAT_POOL[i][4]
 						for j = 1, #texX do
+							--if i == 1 then
+							--	glColor(0.5 + math.random()*0.5, green + math.random()*0.25, 0.1 + math.random()*0.6, alpha + math.random()*0.3)
+							--elseif i == 2 then
+							--	glColor(red + math.random()*0.25, 0.4 + math.random()*0.6, blue + math.random()*0.25, alpha + math.random()*0.3)
+							--else
+								glColor(red + math.random()*0.25, green + math.random()*0.25, blue + math.random()*0.25, alpha + math.random()*0.3)
+							--end
 							glRect(texX[j]*MAP_FAC_X -1, texZ[j]*MAP_FAC_Z - 1, texX[j]*MAP_FAC_X + DRAW_OFFSET, texZ[j]*MAP_FAC_Z + DRAW_OFFSET)
 						end
 					end
@@ -464,7 +471,11 @@ local function GetTopTex(normal, height, vehiclePass, botPassPlus, botPass, inWa
 	local textureProp = (1 - (normal - minNorm)/(maxNorm - minNorm))
 	local topAlpha
 	if vehiclePass then
-		topAlpha = 0.95*textureProp
+		if textureProp > 0.15 then
+			topAlpha = 0.075 + 0.875*(textureProp - 0.15) / 0.85
+		else
+			topAlpha = 0.5*textureProp
+		end
 	elseif botPassPlus then
 		topAlpha = textureProp
 	elseif botPass then
@@ -480,15 +491,22 @@ local function GetTopTex(normal, height, vehiclePass, botPassPlus, botPass, inWa
 	end
 	
 	if vehiclePass then
-		if textureProp > 0.2 then
-			if height%8 > 5 then
-				local prop = math.max(0, math.min(1, (textureProp - 0.2)/0.3))*0.8 + 0.2
-				topAlpha = topAlpha - (0.14 + 0.1*prop)
+		if textureProp > 0.18 then
+			if height%7 > 4.5 then
+				local prop = math.max(0, math.min(1, (textureProp - 0.18)/0.3))*0.8 + 0.2
+				topAlpha = math.max(0, topAlpha - (0.1 + 0.22*prop))
 			end
 		end
 	elseif botPassPlus then
-		if height%8 > 5 then
+		local modHeight = height%7
+		if modHeight > 6.5 then
+			local prop = 1 - (modHeight - 6)*2
+			topAlpha = textureProp*(0.1 + 0.2*prop) + (0.9 - 0.2*prop)
+		elseif modHeight > 4.5 then
 			topAlpha = textureProp*0.3 + 0.7
+		elseif modHeight > 4 then
+			local prop = (modHeight - 4)*2
+			topAlpha = textureProp*(0.1 + 0.2*prop) + (0.9 - 0.2*prop)
 		else
 			topAlpha = textureProp*0.1 + 0.9
 		end
@@ -497,9 +515,9 @@ local function GetTopTex(normal, height, vehiclePass, botPassPlus, botPass, inWa
 			topAlpha = (1 - topAlpha)*textureProp + (1 - topAlpha)*textureProp
 		end
 	else
-		local modHeight = height%60
-		if modHeight > 24 then
-			local prop = (1 - math.abs(modHeight - 36)/18)*0.05
+		local modHeight = (height -2 + 4*math.random())%54
+		if modHeight > 18 then
+			local prop = math.min(1, 1.2*(1 - math.abs(modHeight - 36)/18)*0.05)
 			topAlpha = (1 - topAlpha)*prop + (1 - prop)*topAlpha
 		else
 			return false

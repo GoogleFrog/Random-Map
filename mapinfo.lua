@@ -49,7 +49,7 @@ local mapinfo = {
 		},
 	},
 	splats = {
-		texScales = {0.006, 0.02, 0.012, 0.012},
+		texScales = {0.0045, 0.023, 0.061, 0.053},
 		texMults = {0.5, 0.3, 0.35, 0},
 	},
 
@@ -82,19 +82,19 @@ local mapinfo = {
 		--// dynsun
 		sunStartAngle = 0.0,
 		sunOrbitTime  = 1440.0,
-		sunDir        = {0.25, 1.0, 0.2, 1e9},
+		sunDir        = {0.35, 1.0, 0.3, 1e9},
 
 		--// unit & ground lighting
-		groundAmbientColor  = {0.5, 0.5, 0.5},
-		groundDiffuseColor  = {0.5, 0.5, 0.5},
+		groundAmbientColor  = {0.35, 0.45, 0.3},
+		groundDiffuseColor  = {0.7, 0.72, 0.43},
 		groundSpecularColor = {0.1, 0.1, 0.1},
 		groundShadowDensity = 0.8,
-		unitAmbientColor    = {0.4, 0.4, 0.4},
-		unitDiffuseColor    = {0.7, 0.7, 0.7},
-		unitSpecularColor   = {0.7, 0.7, 0.7},
-		unitShadowDensity   = 0.8,
+		unitAmbientColor    = {0.55, 0.55, 0.45},
+		unitDiffuseColor    = {0.85, 0.85, 0.85},
+		unitSpecularColor   = {0.85, 0.85, 0.85},
+		unitShadowDensity   = 0.4,
 		
-		specularExponent    = 100.0,
+		specularExponent    = 3.0,
 	},
 	
 	water = {

@@ -476,11 +476,11 @@ local function GetRandomPointInCircle(pos, radius, edgeBuffer, onBorder)
 	return PutPointInMap(randomPos, edgeBuffer)
 end
 
-local function GetRandomPointInCircleAvoid(avoidDist, avoidPoints, maxAttempts, pos, radius, edgeBuffer)
-	local point = GetRandomPointInCircle(pos, radius, edgeBuffer)
+local function GetRandomPointInCircleAvoid(avoidDist, avoidPoints, maxAttempts, pos, radius, edgeBuffer, onBorder, useOtherSize)
+	local point = GetRandomPointInCircle(pos, radius, edgeBuffer, onBorder)
 	local attempts = 1
 	while (select(2, GetClosestPoint(point, avoidPoints, useOtherSize)) or 0) < avoidDist do
-		point = GetRandomPointInCircle(pos, radius, edgeBuffer)
+		point = GetRandomPointInCircle(pos, radius, edgeBuffer, onBorder)
 		attempts = attempts + 1
 		if attempts > maxAttempts then
 			break
@@ -636,6 +636,11 @@ local CIRCLE_POINTS = {}
 for i = pi, pi*3/2 + pi/(4*POINT_COUNT), pi/(2*POINT_COUNT) do
 	CIRCLE_POINTS[#CIRCLE_POINTS + 1] = {1 + cos(i), 1 + sin(i)}
 end
+local HIT_EDGE_POINTS = {}
+for i = pi, pi*3/2 + pi/(4*POINT_COUNT), pi/(2*POINT_COUNT) do
+	local prop = math.min(1, (i - pi)/(pi/2 + pi/(4*POINT_COUNT)))
+	HIT_EDGE_POINTS[#HIT_EDGE_POINTS + 1] = {0.5 + (1 - prop)*cos(i) + prop*0.5, 1 + sin(i)}
+end
 
 local STRAIGHT_EDGE_POINTS = 18
 
@@ -711,9 +716,6 @@ local function GenerateVoronoiCells(points)
 			end
 			if intersections then
 				if #intersections ~= 2 then
-					--for e = 1, #cells do
-					--	CellEcho(cells[e])
-					--end
 					--for e = 1, #intersections do
 					--	PointEcho(intersections[e], "Int: " .. e)
 					--end
@@ -894,6 +896,11 @@ local function CleanVoronoiReferences(cells)
 		end
 		
 		if thisEdge.length < MIN_EDGE_LENGTH then
+			-- Restart without one of the cells adjacent to this edge.
+			--LineEcho(thisEdge, "REMOVED")
+			--for i = 1, #cells do
+			--	CellEcho(cells[i])
+			--end
 			return cells, edgeList, thisEdge.faces[random(1, #thisEdge.faces)].index
 		end
 	end
@@ -978,10 +985,10 @@ local function DoPointSplit(points, radius, ignoreSplit)
 		if i < point.mirror and not (ignoreSplit and ignoreSplit[i]) then
 			local index, dist = GetClosestPoint(point, points, false, i)
 			if dist > radius then
-				local newPoint = GetRandomPointInCircle(point, radius*0.45, 50, true)
+				local newPoint = GetRandomPointInCircle(point, radius*0.5, 50, true)
 				
-				-- Mirror around point
-				pointsToAdd[#pointsToAdd + 1] = PutPointInMap(RotateAround(newPoint, point), 50)
+				-- Mirror around point and add some randomness.
+				pointsToAdd[#pointsToAdd + 1] = GetRandomPointInCircleAvoid(radius*0.25, {newPoint}, 50, RotateAround(newPoint, point), 50, radius*0.25, 50)
 				
 				-- Replace and mirror around map centre
 				local newPointMirror = ApplyRotSymmetry(newPoint)
@@ -1019,7 +1026,7 @@ local function MakeRandomPoints(params)
 	end
 	
 	for i = 1, midPoints do
-		local point = GetRandomPointInCircleAvoid(params.midPointSpace, points, 50, {MAP_X/2, MAP_Z/2}, params.midPointRadius)
+		local point = GetRandomPointInCircleAvoid(params.midPointSpace, points, 50, {MAP_X/2, MAP_Z/2}, params.midPointRadius, 50, false, true)
 		AddPointAndMirror(points, point, params.midPointSpace)
 	end
 	
@@ -1041,12 +1048,7 @@ local function GetVoronoi(params)
 				local thisCell = cells[i]
 				if thisCell.site and (thisCell.index ~= badSite) and ((not thisCell.mirror) or (thisCell.mirror.index ~= badSite)) then
 					local point = {thisCell.site[1], thisCell.site[2]}
-					local pointMirror = ApplyRotSymmetry(point)
-					
-					points[#points + 1] = point
-					pointMirror.mirror = #points
-					points[#points + 1] = pointMirror
-					point.mirror = #points
+					AddPointAndMirror(points, point, thisCell.size)
 					
 					thisCell.site = nil
 					if thisCell.mirror then
@@ -1588,6 +1590,18 @@ local function GetCurveHeightModifiers(tierFlood, cellTier, otherTier, heightMod
 	end
 end
 
+local function MakeMapBorderEdgeHit(tierFlood, cellTier, otherTier, heightMod, intPoint, edgeOut, otherOut, startWidth, endWidth, otherClockwise)
+	local curve = {}
+	for i = 1, #HIT_EDGE_POINTS do
+		local randRad = (i - 1)*(#HIT_EDGE_POINTS - i)/(#HIT_EDGE_POINTS*2)
+		local nextPoint = GetRandomPointInCircle(HIT_EDGE_POINTS[i], 0.04*randRad)
+		curve[#curve + 1] = Add(intPoint, ChangeBasis(nextPoint, edgeOut[1], otherOut[1], edgeOut[2], otherOut[2]))
+		--PointEcho(curve[#curve], i)
+	end
+	
+	GetCurveHeightModifiers(tierFlood, cellTier, otherTier, heightMod, curve, startWidth, endWidth, otherClockwise)
+end
+
 local function GenerateEdgeMeetTerrain(tierFlood, heightMod, cells, cell, edge, otherEdge, edgeIncidence)
 	local cellIndex = cell.index
 	local intPoint = edge[edgeIncidence]
@@ -1611,7 +1625,7 @@ local function GenerateEdgeMeetTerrain(tierFlood, heightMod, cells, cell, edge, 
 		end
 		local otherTier = otherEdge.otherFace[cellIndex].tier
 		otherClockwise = not otherClockwise
-		GetLineHeightModifiers(tierFlood, cellTier, otherTier, heightMod, intPoint, Add(intPoint, otherOut), otherEdge.terrainWidth, otherClockwise)
+		MakeMapBorderEdgeHit(tierFlood, cellTier, otherTier, heightMod, intPoint, otherOut, edgeOut, otherEdge.terrainWidth, edge.terrainWidth, otherClockwise)
 		return
 	end
 	
@@ -1623,7 +1637,7 @@ local function GenerateEdgeMeetTerrain(tierFlood, heightMod, cells, cell, edge, 
 			return
 		end
 		local otherTier = edge.otherFace[cellIndex].tier
-		GetLineHeightModifiers(tierFlood, cellTier, otherTier, heightMod, intPoint, Add(intPoint, edgeOut), edge.terrainWidth, otherClockwise)
+		MakeMapBorderEdgeHit(tierFlood, cellTier, otherTier, heightMod, intPoint, edgeOut, otherOut, edge.terrainWidth, otherEdge.terrainWidth, otherClockwise)
 		return
 	end
 	
@@ -1640,7 +1654,9 @@ local function GenerateEdgeMeetTerrain(tierFlood, heightMod, cells, cell, edge, 
 	
 	local curve = {}
 	for i = 1, #CIRCLE_POINTS do
-		curve[#curve + 1] = Add(intPoint, ChangeBasis(CIRCLE_POINTS[i], edgeOut[1], otherOut[1], edgeOut[2], otherOut[2]))
+		local randRad = (i - 1)*(#CIRCLE_POINTS - i)/(#CIRCLE_POINTS*2)
+		local nextPoint = GetRandomPointInCircle(CIRCLE_POINTS[i], 0.025*randRad)
+		curve[#curve + 1] = Add(intPoint, ChangeBasis(nextPoint, edgeOut[1], otherOut[1], edgeOut[2], otherOut[2]))
 		--PointEcho(curve[#curve], i)
 	end
 	
@@ -2713,11 +2729,11 @@ local waitCount = 0
 
 local newParams = {
 	startPoint = {500, 500},
-	startPointSize = 880,
+	startPointSize = 800,
 	points = 21,
 	midPoints = 3,
 	midPointRadius = 900,
-	midPointSpace = 100,
+	midPointSpace = 160,
 	minSpace = 150,
 	maxSpace = 350,
 	pointSplitRadius = 500,
@@ -2725,8 +2741,8 @@ local newParams = {
 	flatNeighbourIgloo = 560,
 	lowDiffNeighbourIgloo = 380,
 	highDiffNeighbourIgloo = 200,
-	cliffWidth = 22,
-	rampWidth  = 240,
+	cliffWidth = 36,
+	rampWidth  = 280,
 	generalWaveMod = 0.9,
 	waveDirectMult = 0.5,
 	bucketBase = 55,
@@ -2743,7 +2759,7 @@ local newParams = {
 local function MakeMap()
 	local params = newParams
 	local randomSeed = GetSeed()
-	--randomSeed = 44911 -- A crash
+	--randomSeed = 44911
 	math.randomseed(randomSeed)
 
 	Spring.SetGameRulesParam("typemap", "temperate2")
@@ -2841,8 +2857,8 @@ function LineDraw(p1, p2)
 	end
 end
 
-function CellEcho(cell)
-	--PointEcho(cell.site, "Cell: " .. cell.index .. ", edges: " .. #cell.edges)
+function CellEcho(cell, text)
+	PointEcho(cell.site, "Cell: " .. (cell.index or "NULL") .. (text or (", edges: " .. #cell.edges)))
 	for k = 1, #cell.edges do
 		LineDraw(cell.edges[k])
 	end
