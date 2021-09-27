@@ -21,6 +21,7 @@ end
 local MIN_EDGE_LENGTH = 10
 local DISABLE_TERRAIN_GENERATOR = false
 local TIME_MAP_GEN = false
+local DRAW_EDGES = false
 
 --------------------------------------------------------------------------------
 --------------------------------------------------------------------------------
@@ -2828,7 +2829,7 @@ local function MakeMap()
 	Spring.Echo("Random Seed", randomSeed)
 	
 	local cells, edges, edgesSorted, heightMod, waveFunc, tiers, tierConst, tierHeight, tierMin, tierMax, startCell = GetTerrainStructure(params)
-	toDrawEdges = edges
+	toDrawEdges = DRAW_EDGES and edges
 	
 	local smoothHeights = MakeHeightmap(cells, edges, heightMod, waveFunc, tiers, tierConst, tierHeight, tierMin, tierMax, params)
 	
