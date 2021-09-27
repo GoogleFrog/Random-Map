@@ -1936,8 +1936,8 @@ local function SetEdgePassability(params, edge, minLandTier)
 			edge.terrainWidth = ((0.65 < random()) and params.rampWidth) or params.cliffWidth
 		end
 	else
-		-- Make a ramp 35% of the time.
-		edge.terrainWidth = ((0.35 < random()) and params.rampWidth) or params.cliffWidth
+		-- Make a ramp 40% of the time.
+		edge.terrainWidth = ((0.4 < random()) and params.rampWidth) or params.cliffWidth
 	end
 	
 	-- Make a veh-pathable mega ramp.

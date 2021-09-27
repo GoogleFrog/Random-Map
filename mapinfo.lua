@@ -4,11 +4,11 @@
 --
 
 local mapinfo = {
-	name        = "Random Crags",
-	shortname   = "rcrags",
-	description = "A sometimes-craggy, sometimes flat random map (10x10)",
+	name        = "Random Plateaus",
+	shortname   = "rplat",
+	description = "A sometimes craggy, sometimes plateauy random map, now with igloos (10x10)",
 	author      = "GoogleFrog",
-	version     = "v2.1",
+	version     = "v0.7",
 	modtype     = 3, --// 1=primary, 0=hidden, 3=map
 
 	maphardness     = 140,
