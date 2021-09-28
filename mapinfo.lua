@@ -41,16 +41,16 @@ local mapinfo = {
 		splatDetailTex = "Rock.png",
 		splatDetailNormalDiffuseAlpha = 1,
 		splatDetailNormalTex = {
-			"Grass.png", -- Grass
-			"Rock.png", -- Rocky grass
-			"DepthSand.png", -- shallowSand
-			"DepthSand.png", -- Depth Sand
+			"grass.tga", -- Grass
+			"rock.tga", -- Rocky grass
+			"sand.tga", -- shallowSand
+			"volcano.tga", -- Depth Sand
 			alpha = true,
 		},
 	},
 	splats = {
-		texScales = {0.0045, 0.023, 0.061, 0.053},
-		texMults = {0.5, 0.3, 0.35, 0},
+		TexScales = { 0.00471, 0.00097, 0.0013, 0.0027 },
+		TexMults = { 0.5, 0.31, 0.5, 0.65 },
 	},
 
 	atmosphere = {
