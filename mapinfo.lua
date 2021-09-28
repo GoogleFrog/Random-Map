@@ -4,8 +4,8 @@
 --
 
 local mapinfo = {
-	name        = "Random Plateaus",
-	shortname   = "rplat",
+	name        = "Random Objects",
+	shortname   = "robj",
 	description = "A sometimes craggy, sometimes plateauy random map, now with igloos (10x10)",
 	author      = "GoogleFrog",
 	version     = "v0.7",

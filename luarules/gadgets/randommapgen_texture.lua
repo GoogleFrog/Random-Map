@@ -62,8 +62,10 @@ local glTexRect         = gl.TexRect
 local glRect            = gl.Rect
 local glDeleteTexture   = gl.DeleteTexture
 local glRenderToTexture = gl.RenderToTexture
-
+local glCreateShader    = gl.CreateShader
+local glUseShader       = gl.UseShader
 local GL_RGBA = 0x1908
+
 local GL_RGBA16F = 0x881A
 local GL_RGBA32F = 0x8814
 
@@ -188,25 +190,59 @@ local function SetMapTexture(texturePool, mapTexX, mapTexZ, topTexX, topTexZ, to
 		}
 	)
 	Spring.Echo("Generated blank splattex")
+
+	local vertSrc = [[
+		void main(void)
+		{
+		  gl_TexCoord[0] = gl_MultiTexCoord0;
+		  gl_Position    = gl_Vertex;
+		}
+	  ]]
+	  
+	local fragSrc = [[
+        uniform sampler2D tex0;
+        uniform sampler2D tex1; // seems to do nothing, replace with something useful
+
+		void main()
+		{
+			vec4 norm = texture2D(tex1, vec2(gl_TexCoord[0].s,0.5*gl_TexCoord[0].t));
+			//float slope = dot(vec3(norm.r, norm.g, norm.b),vec3(0,1,0));
+            vec2 norm2d = vec2(norm.x, norm.a);
+			float len = length(norm2d);
+			gl_FragColor = vec4(len,1.-len,0.,1.);
+		}
+	]]
+
+	diffuseShader = glCreateShader({
+		vertex = vertSrc,
+		fragment = fragSrc,
+		uniformInt = {
+			tex0 = 0,
+			tex1 = 1,
+		},
+	});
+
+	Spring.Echo(gl.GetShaderLog())
+
+	Spring.Echo("Diffuse shader created");
 	
 	local function DrawLoop()
 		local loopCount = 0
 		glColor(1, 1, 1, 1)
 		local ago = Spring.GetTimer()
 		
-		glRenderToTexture(topFullTex, function ()
-			for i = 1, #texturePool do
-				local texX = mapTexX[i]
-				local texZ = mapTexZ[i]
-				if texX then
-					glTexture(texturePool[i].texture)
-					for j = 1, #texX do
-						glTexRect(texX[j]*MAP_FAC_X - 1, texZ[j]*MAP_FAC_Z - 1,
-							texX[j]*MAP_FAC_X + DRAW_OFFSET, texZ[j]*MAP_FAC_Z + DRAW_OFFSET)
-					end
-				end
-			end
+		Spring.Echo("Begin shader draw")
+
+		glRenderToTexture(topFullTex, function ()			
+			glUseShader(diffuseShader)
+			glTexture(0, "$heightmap")
+			glTexture(0, false)
+			glTexture(1,"$normals")
+			glTexture(1, false)	
+			gl.TexRect(-1,-1,1,0,false,true)
+			glUseShader(0)
 		end)
+
 		Sleep()
 		Spring.ClearWatchDogTimer()
 		glTexture(false)
@@ -221,6 +257,7 @@ local function SetMapTexture(texturePool, mapTexX, mapTexZ, topTexX, topTexZ, to
 				local texX = topTexX[i]
 				local texZ = topTexZ[i]
 				local texAlpha = topTexAlpha[i]
+				if true then break end
 				if texX then
 					glTexture(texturePool[i].texture)
 					for j = 1, #texX do
