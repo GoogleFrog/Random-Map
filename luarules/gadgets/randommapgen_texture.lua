@@ -359,13 +359,11 @@ local function SetMapTexture(texturePool, mapTexX, mapTexZ, topTexX, topTexZ, to
 		cur = Spring.GetTimer()
 		Spring.Echo("All squaretex rendered and applied in: "..(Spring.DiffTimers(cur, ago3, true)))
 
-		if USE_SHADING_TEXTURE then
-			Spring.SetMapShadingTexture("$grass", texOut)
-			usedgrass = texOut
-			Spring.SetMapShadingTexture("$minimap", texOut)
-			usedminimap = texOut
-			Spring.Echo("Applied grass and minimap textures")
-		end
+		Spring.SetMapShadingTexture("$grass", texOut)
+		usedgrass = texOut
+		Spring.SetMapShadingTexture("$minimap", texOut)
+		usedminimap = texOut
+		Spring.Echo("Applied grass and minimap textures")
 		gl.DeleteTextureFBO(fulltex)
 		
 		if texOut and texOut ~= usedgrass and texOut ~= usedminimap then
