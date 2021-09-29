@@ -453,9 +453,6 @@ local vehTexPool, botTexPool, spiderTexPool, uwTexPool
 local mapTexX, mapTexZ, topTexX, topTexZ, topTexAlpha, splatTexX, splatTexZ, splatTexCol, mapHeight
 
 function gadget:DrawGenesis()
-	if not initialized then
-		return
-	end
 	if mapfullyprocessed then
 		gadgetHandler:RemoveGadget()
 		return
@@ -472,24 +469,3 @@ function gadget:MousePress(x, y, button)
 	return (button == 1) and (not mapfullyprocessed)
 end
 
-local function MakeMapTexture()
-	if (not gl.RenderToTexture) then --super bad graphic driver
-		mapfullyprocessed = true
-		return
-	end
-	--texturePool = SetupTextureSet(Spring.GetGameRulesParam("typemap"))
-	--mapTexX, mapTexZ, topTexX, topTexZ, topTexAlpha, splatTexX, splatTexZ, splatTexCol, mapHeight = InitializeTextures(USE_SHADING_TEXTURE, Spring.GetGameRulesParam("typemap"))
-	initialized = true
-end
-
-local updateCount = 0
-function gadget:Update(n)
-	if not updateCount then
-		return
-	end
-	updateCount = updateCount + 1
-	if updateCount > 2 then
-		updateCount = false
-		MakeMapTexture()
-	end
-end
