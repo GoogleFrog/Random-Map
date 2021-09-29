@@ -21,8 +21,8 @@ end
 local MIN_EDGE_LENGTH = 10
 local DISABLE_TERRAIN_GENERATOR = false
 local TIME_MAP_GEN = false
-local DRAW_EDGES = false
-local PRINT_TIERS = false
+local DRAW_EDGES = true
+local PRINT_TIERS = true
 local DO_SMOOTHING = true
 
 --------------------------------------------------------------------------------
@@ -2052,8 +2052,6 @@ local function SetEdgePassability(params, edge, minLandTier)
 		edge.vehPass = false
 		edge.botPass = true
 	end
-	
-	LineEchoMirror(edge, edge.terrainWidth)
 end
 
 local function SetEdgeSoloTerrain(params, edge)
@@ -2136,14 +2134,17 @@ local function SetEdgeSoloTerrain(params, edge)
 	local iglooTier = edge.lowTier + 1
 	local startScale = (random()*0.6 - 0.28)*params.iglooHeightMult
 	local sign = ((startScale > 0) and 1) or -1
-	if abs(startScale) < (0.4 + 0.15*random())*params.iglooBoostThreshold then
-		startScale = 0.7*sign + 1.1*startScale
-	end
+	
+	local midDist = Dist(GetMidpoint(edge[1], edge[2]), {MAP_X*0.5, MAP_Z*0.5})
+	local midFactor = max(0, 1 - midDist/1400)
 	
 	local effectMult = (0.6 + 0.5*random())
 	local width = (0.21*edge.length + 35 + 160*random())
-	local midDist = Dist(GetMidpoint(edge[1], edge[2]), {MAP_X*0.5, MAP_Z*0.5})
 	local iglooLength = 30 + 80*random()*params.iglooLengthMult
+	
+	if abs(startScale) < (0.4 + 0.15*random())*params.iglooBoostThreshold + 0.8*midFactor then
+		startScale = 0.7*sign + 1.1*startScale
+	end
 	
 	local endScale = startScale
 	local endWidth = width
@@ -2157,8 +2158,8 @@ local function SetEdgeSoloTerrain(params, edge)
 		endWidth = endWidth*((mult + random()*0.2 - 0.1)*0.5 + 0.5)
 	end
 	
-	if random() < 0.3*random() + 1.6*max(0, 1 - midDist/1800) then
-		local mult = (1.3 + 0.8*random())
+	if random() < 0.3*random() + 0.1*midFactor then
+		local mult = (1.3 + 0.8*random()) + 0.7*midFactor
 		iglooLength = iglooLength*mult
 		endWidth = endWidth*(mult*0.5 + 0.5)
 		endScale = endScale/mult
@@ -2166,7 +2167,7 @@ local function SetEdgeSoloTerrain(params, edge)
 	
 	iglooLength = min(edge.length, iglooLength)
 	-- Prevent long large and high igloos.
-	if iglooLength > 180 and abs(params.longIglooFlatten*startScale*effectMult) > width/edge.length then
+	if iglooLength > 180 and abs(params.longIglooFlatten*startScale*effectMult) > (1 + 0.4*midFactor)*width/edge.length then
 		effectMult = effectMult*(width/edge.length)/abs(params.longIglooFlatten*startScale*effectMult)
 	end
 	
@@ -2596,7 +2597,7 @@ local function AllocateMetalSpots(cells, edges, minLandTier, startCell, params)
 				thisCell.metalDist = 220
 				wantedMexes = wantedMexes - thisCell.metalSpots
 			else
-				thisCell.mexAlloc = thisCell.startPathFactor*0.6 + thisCell.startDistFactor*0.4 + thisCell.closeDistFactor*0.95 - 0.1
+				thisCell.mexAlloc = thisCell.startPathFactor*0.6 + thisCell.startDistFactor*0.4 + thisCell.closeDistFactor*1.3 - 0.1
 				if diffDist and diffDist <= 1 then
 					thisCell.mexAlloc = thisCell.mexAlloc + 0.5
 				end
@@ -2658,12 +2659,12 @@ local function AllocateMetalSpots(cells, edges, minLandTier, startCell, params)
 		end
 		mexCell.metalSpots = (mexCell.metalSpots or 0) + mexAssignment
 		if mexAssignment == 2 then
-			mexCell.metalDist = 180
+			mexCell.metalDist = 167
 		elseif (mexCell.mirror and distBetweenMirror > 2000) then
-			mexCell.metalDist = ((random() > 0.1 and 680) or 180) -- Whether to allow grouped mexes.
+			mexCell.metalDist = ((random() > 0.1 and 520) or 170) -- Whether to allow grouped mexes.
 		else
-			local dist = (mexCell.mirror and distBetweenMirror)
-			mexCell.metalDist = 680 + 280*(1 - dist/2000)
+			local dist = (mexCell.mirror and distBetweenMirror) or 0
+			mexCell.metalDist = 600 + 280*(1 - dist/2000)
 		end
 		
 		wantedMexes = wantedMexes - mexAssignment
@@ -2898,7 +2899,7 @@ local newParams = {
 	cliffWidth = 38,
 	steepCliffWidth = 18,
 	steepCliffChance = 0.4,
-	tierHeight = 55,
+	tierHeight = 56,
 	rampWidth  = 120,
 	tierConst = 38,
 	generalWaveMod = 1,
@@ -2907,8 +2908,8 @@ local newParams = {
 	bucketRandomOffset = 60,
 	bucketStdMult = 0.3,
 	bucketStdMultRand = 0.2,
-	bucketSizeMult = 0.55,
-	bucketSizeMultRand = 0.62,
+	bucketSizeMult = 0.6,
+	bucketSizeMultRand = 0.3,
 	heightOffsetFactor = 0.9,
 	mapBorderTier = false,
 	nonBorderSeaNeighbourLimit = 0, -- Only allow lone lakes.
