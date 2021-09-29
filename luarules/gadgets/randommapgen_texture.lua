@@ -64,6 +64,9 @@ local glDeleteTexture   = gl.DeleteTexture
 local glRenderToTexture = gl.RenderToTexture
 local glCreateShader    = gl.CreateShader
 local glUseShader       = gl.UseShader
+local glGetUniformLocation   = gl.GetUniformLocation
+local glUniform              = gl.Uniform
+
 local GL_RGBA = 0x1908
 
 local GL_RGBA16F = 0x881A
@@ -162,7 +165,10 @@ local function SetMapTexture(texturePool, mapTexX, mapTexZ, topTexX, topTexZ, to
 	local usedsplat
 	local usedgrass
 	local usedminimap
-	
+
+	local minHeight =  Spring.GetGameRulesParam("ground_min_override")
+	local maxHeight = Spring.GetGameRulesParam("ground_max_override")
+
 	local topFullTex = gl.CreateTexture(MAP_X/BLOCK_SIZE, MAP_Z/BLOCK_SIZE,
 		{
 			border = false,
@@ -202,8 +208,23 @@ local function SetMapTexture(texturePool, mapTexX, mapTexZ, topTexX, topTexZ, to
 	local fragSrc = [[
         uniform sampler2D tex0; // unqualified heightfield
         uniform sampler2D tex1; // 2d normals
-		uniform sampler2D tex2; // rock texture
+		uniform sampler2D tex2; // hard rock texture
 		uniform sampler2D tex3; // flats texture
+		uniform sampler2D tex4; // beach texture
+		uniform sampler2D tex5; // mid-altitude flats
+		uniform sampler2D tex6; // high-altitude flats
+		uniform sampler2D tex7; // ramp/hill texture
+
+		uniform float minHeight;
+		uniform float maxHeight;
+
+		// should these be uniforms?
+		const float hardCliffMax = 1.0; // sharpest bot-blocking cliff
+		const float hardCliffMin = 0.58778525229; // least sharp bot-blocking cliff
+
+		const float softCliffMax = hardCliffMin;
+		const float softCliffMin = 0.30901699437;
+
 
 		vec2 rotate(vec2 v, float a) {
 			float s = sin(a);
@@ -218,15 +239,50 @@ local function SetMapTexture(texturePool, mapTexX, mapTexZ, topTexX, topTexZ, to
 			vec4 norm = texture2D(tex1, coord);
             vec2 norm2d = vec2(norm.x, norm.a);
 			float slope = length(norm2d);
+			float factor = 0.0;
+			float height = texture2D(tex0,coord).r;
 
-			// make textures full size
+			// tile somewhat
 			coord = 8.0*coord;
 
-			gl_FragColor = mix(texture2D(tex2,coord),texture2D(tex3,coord),slope);
+			// base texture
+			gl_FragColor = texture2D(tex2,coord);
+
+			// ---- altitude textures ----
+
+			// admix depths
+			factor = smoothstep(-5.0,-17.0,height);
+			gl_FragColor = mix(gl_FragColor,vec4(0.6,0.5,0.0,1.0),factor);
+
+			// admix beaches
+			factor = clamp(0.1*(10.0-abs(height)),0.0,1.0);
+			gl_FragColor = mix(gl_FragColor,texture2D(tex4,coord),factor);
+
+			// admix midlands
+			factor = clamp(1.0-0.02*abs(height-150.0),0.0,1.0);
+			gl_FragColor = mix(gl_FragColor,texture2D(tex5,coord),factor);
+
+			// admix highlands
+			factor = smoothstep(300.0,400.0,height);
+			gl_FragColor = mix(gl_FragColor,texture2D(tex6,coord),factor);
+
+			// ---- slope textures ----
+
+			// admix ramps (maybe replace texture later)
+			factor = 0.25*smoothstep(0.1, softCliffMin, slope);
+			gl_FragColor = mix(gl_FragColor,texture2D(tex7,coord),factor);
+
+			// admix soft cliffs (replace texture later)
+			factor = 0.5*smoothstep(softCliffMin, softCliffMax, slope);
+			gl_FragColor = mix(gl_FragColor,texture2D(tex7,coord),factor);
+
+			// admix hard cliffs
+			factor = smoothstep(hardCliffMin, hardCliffMax, slope);
+			gl_FragColor = mix(gl_FragColor,texture2D(tex3,coord),factor);
 		}
 	]]
 
-	diffuseShader = glCreateShader({
+	local diffuseShader = glCreateShader({
 		vertex = vertSrc,
 		fragment = fragSrc,
 		uniformInt = {
@@ -234,12 +290,28 @@ local function SetMapTexture(texturePool, mapTexX, mapTexZ, topTexX, topTexZ, to
 			tex1 = 1,
 			tex2 = 2,
 			tex3 = 3,
+			tex4 = 4,
+			tex5 = 5,
+			tex6 = 6,
+			tex7 = 7,
 		},
 	});
 
-	Spring.Echo(gl.GetShaderLog())
 
-	Spring.Echo("Diffuse shader created");
+	Spring.Echo(gl.GetShaderLog())
+	if(diffuseShader) then
+		Spring.Echo("Diffuse shader created");
+	else
+		Spring.Echo("SHADER ERROR");
+		Spring.Echo(gl.GetShaderLog())
+
+		mapfullyprocessed = true
+		return
+	end
+
+	local minHeightPos  = glGetUniformLocation(diffuseShader, 'minHeight')
+	local maxHeightPos  = glGetUniformLocation(diffuseShader, 'maxHeight')
+
 	
 	local function DrawLoop()
 		local loopCount = 0
@@ -250,14 +322,24 @@ local function SetMapTexture(texturePool, mapTexX, mapTexZ, topTexX, topTexZ, to
 
 		glRenderToTexture(topFullTex, function ()			
 			glUseShader(diffuseShader)
+			glUniform(minHeightPos, minHeight)
+			glUniform(maxHeightPos, maxHeight)
 			glTexture(0, "$heightmap")
 			glTexture(0, false)
 			glTexture(1,"$normals")
 			glTexture(1, false)	
-			glTexture(2,":l:unittextures/tacticalview/thornworld/thornworld_flats.jpg");
+			glTexture(2,":l:unittextures/tacticalview/thornworld/diffuse/flats.png");
 			glTexture(2, false)
-			glTexture(3,":l:unittextures/tacticalview/thornworld/thornworld_cliffs.jpg");
+			glTexture(3,":l:unittextures/tacticalview/thornworld/diffuse/cliffs.png");
 			glTexture(3, false)
+			glTexture(4,":l:unittextures/tacticalview/thornworld/diffuse/beach.jpg");
+			glTexture(4, false)
+			glTexture(5,":l:unittextures/tacticalview/thornworld/diffuse/midlands.jpg");
+			glTexture(5, false)
+			glTexture(6,":l:unittextures/tacticalview/thornworld/diffuse/highlands.png");
+			glTexture(6, false)
+			glTexture(7,":l:unittextures/tacticalview/thornworld/diffuse/slopes.png");
+			glTexture(7, false)
 			gl.TexRect(-1,-1,1,0,false,true)
 			glUseShader(0)
 		end)
@@ -268,14 +350,14 @@ local function SetMapTexture(texturePool, mapTexX, mapTexZ, topTexX, topTexZ, to
 		
 		local cur = Spring.GetTimer()
 		Spring.Echo("FullTex rendered in: "..(Spring.DiffTimers(cur, ago, true)))
-					local ago2 = Spring.GetTimer()
-			gl.Blending(GL.ONE, GL.ZERO)
+		local ago2 = Spring.GetTimer()
+		gl.Blending(GL.ONE, GL.ZERO)
 
-			Sleep()
-			Spring.ClearWatchDogTimer()
-			cur = Spring.GetTimer()
-			Spring.Echo("Splattex rendered in: "..(Spring.DiffTimers(cur, ago2, true)))
-			glColor(1, 1, 1, 1)
+		Sleep()
+		Spring.ClearWatchDogTimer()
+		cur = Spring.GetTimer()
+		Spring.Echo("Splattex rendered in: "..(Spring.DiffTimers(cur, ago2, true)))
+		glColor(1, 1, 1, 1)
 
 
 		Spring.Echo("Starting to render SquareTextures")
