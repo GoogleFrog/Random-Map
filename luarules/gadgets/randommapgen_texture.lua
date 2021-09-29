@@ -438,9 +438,9 @@ local function GetSplatCol(height, normal)
 		end
 		
 		-- Sand and rocks on mountains, why not
-		if height > maxHeight - range then
+		if height > maxHeight - range - 20 then
 			if height < maxHeight then
-				prop = (height - (maxHeight - range))/range
+				prop = (height - (maxHeight - range - 20))/range
 			else
 				prop = 1
 			end
@@ -526,23 +526,34 @@ local function GetTopTex(normal, height, vehiclePass, botPassPlus, botPass)
 	
 	if vehiclePass then
 		if textureProp > 0.18 then
-			if height%7 > 4.5 then
-				local prop = math.max(0, math.min(1, (textureProp - 0.18)/0.3))*0.8 + 0.2
+			local modHeight = height%7
+			local smoothProp = false
+			if modHeight > 6 then
+				smoothProp = 1 - (modHeight - 6)
+			elseif modHeight > 5 then
+				smoothProp = 1
+			elseif modHeight > 4 then
+				smoothProp = (modHeight - 4)
+			end
+			if smoothProp then
+				local prop = (math.max(0, math.min(1, (textureProp - 0.18)/0.3))*0.8 + 0.2)*smoothProp
 				topAlpha = math.max(0, topAlpha - (0.1 + 0.22*prop))
 			end
 		end
 	elseif botPassPlus then
 		local modHeight = height%7
+		local smoothProp = false
 		if modHeight > 6.5 then
-			local prop = 1 - (modHeight - 6)*2
-			topAlpha = textureProp*(0.25 + 0.2*prop) + (0.9 - 0.2*prop)
+			smoothProp = 1 - (modHeight - 6)*2
 		elseif modHeight > 4.5 then
-			topAlpha = textureProp*0.45 + 0.7
+			smoothProp = 1
 		elseif modHeight > 4 then
-			local prop = (modHeight - 4)*2
-			topAlpha = textureProp*(0.25 + 0.2*prop) + (0.9 - 0.2*prop)
+			smoothProp = (modHeight - 4)*2
 		else
 			topAlpha = textureProp*0.25 + 0.9
+		end
+		if smoothProp then
+			topAlpha = textureProp*(0.25 + 0.2*smoothProp) + (0.9 - 0.2*smoothProp)
 		end
 		topAlpha = math.min(1, topAlpha)
 	elseif botPass then
