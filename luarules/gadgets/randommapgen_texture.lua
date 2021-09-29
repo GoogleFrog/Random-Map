@@ -72,7 +72,7 @@ local SPIDER_TEX = 5
 local BOT_TEX = 5
 local VEH_TEX = 20
 local VEH_SAMPLE_RANGE = 1.5
-local VEH_HEIGHT_MAX = 360
+local VEH_HEIGHT_MAX = 300
 local VEH_HEIGHT_MIN = -50
 
 local floor  = math.floor

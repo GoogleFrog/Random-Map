@@ -21,7 +21,9 @@ end
 local MIN_EDGE_LENGTH = 10
 local DISABLE_TERRAIN_GENERATOR = false
 local TIME_MAP_GEN = false
-local DRAW_EDGES = true
+local DRAW_EDGES = false
+local PRINT_TIERS = false
+local DO_SMOOTHING = true
 
 --------------------------------------------------------------------------------
 --------------------------------------------------------------------------------
@@ -95,6 +97,7 @@ local ceil   = math.ceil
 local min    = math.min
 local max    = math.max
 local random = math.random
+local pow    = math.pow
 
 local textureCounts = {
 	veh = 5,
@@ -678,14 +681,22 @@ end
 
 local END_FLATTENING = 1.04
 local POINT_COUNT = 11
+
 local CIRCLE_POINTS = {}
 for i = pi, pi*3/2 + pi/(4*POINT_COUNT), pi/(2*POINT_COUNT) do
 	CIRCLE_POINTS[#CIRCLE_POINTS + 1] = {1 + cos(i), 1 + sin(i)}
 end
-local HIT_EDGE_POINTS = {}
+
+local HIT_EDGE_CURVE = {}
 for i = pi, pi*3/2 + pi/(4*POINT_COUNT), pi/(2*POINT_COUNT) do
 	local prop = math.min(1, (i - pi)/(pi/2 + pi/(4*POINT_COUNT)))
-	HIT_EDGE_POINTS[#HIT_EDGE_POINTS + 1] = {0.5 + (1 - prop)*cos(i) + prop*0.5, 1 + sin(i)}
+	HIT_EDGE_CURVE[#HIT_EDGE_CURVE + 1] = {0.5 + (1 - prop)*cos(i) + prop*0.5, 1 + sin(i)}
+end
+
+local HIT_EDGE_STRAIGHT = {}
+for i = pi, pi*3/2 + pi/(4*POINT_COUNT), pi/(2*POINT_COUNT) do
+	local prop = math.min(1, (i - pi)/(pi/2 + pi/(4*POINT_COUNT)))
+	HIT_EDGE_STRAIGHT[#HIT_EDGE_STRAIGHT + 1] = {0.05 + (1 - prop)*cos(i) + prop*0.95, 1 + sin(i)}
 end
 
 local STRAIGHT_EDGE_POINTS = 18
@@ -1429,6 +1440,19 @@ local function GetSlopeWidth(startWidth, endWidth, startDist, endDist, dist)
 	return prop*startWidth + (1 - prop)*endWidth
 end
 
+local function AnarchidIgloo(dist, width)
+	local x = dist/width
+	return (1 - pow(2, -20 * x))
+end
+
+local function StandardIgloo(dist, width)
+	return (cos(pi*dist/width) + 1)/2
+end
+
+local function GeneralEdgeSlope(sign, dist, width)
+	return (1 - cos(pi*(sign*dist*0.5 + width*0.5)/width))*0.5
+end
+
 local function MakeEdgeSlope(params, tangDist, projDist, length, startWidth, endWidth, segStartWidth, segEndWidth, startDist, endDist, overshootStart, beyondFactor)
 	local maxWidth = segStartWidth
 	if maxWidth < segEndWidth then
@@ -1478,7 +1502,7 @@ local function MakeEdgeSlope(params, tangDist, projDist, length, startWidth, end
 		dist = sqrt(distSq)
 	end
 	
-	local change = (1 - cos(pi*(sign*dist*0.5 + width*0.5)/width))*0.5
+	local change = GeneralEdgeSlope(sign, dist, width)
 	if change > 0.5 then
 		return false, (1 - change)
 	else
@@ -1531,8 +1555,8 @@ local function MakeWaveFuncIgloo(params, tangDist, projDist, length, startWidth,
 		end
 	end
 	
-	local change = scale*(cos(pi*dist/width) + 1)/2
-	return false, false, change
+	local change = StandardIgloo(dist, width)
+	return false, false, scale*change
 end
 
 local function ApplyLineDistanceFunc(tierFlood, cellTier, otherTier, heightMod, waveMod, lineStart, lineEnd, HeightFunc, heightParams, startWidth, endWidth, startDist, endDist, otherClockwise, overshootStart, beyondFactor)
@@ -1577,7 +1601,7 @@ local function ApplyLineDistanceFunc(tierFlood, cellTier, otherTier, heightMod, 
 				tangDist = -tangDist
 			end
 			
-			if tierFlood and (projDist > -8 and projDist < lineLength + 8 and tangDist > -20 and tangDist < 40) then
+			if tierFlood and (projDist > -12 and projDist < lineLength + 12 and tangDist > -20 and tangDist < 40) then
 				tangDistAbs = abs(tangDist)
 				if projDist < 0 then
 					tangDistAbs = tangDistAbs - projDist*3
@@ -1644,11 +1668,12 @@ local function GetCurveHeightModifiers(tierFlood, cellTier, otherTier, heightMod
 	end
 end
 
-local function MakeMapBorderEdgeHit(tierFlood, cellTier, otherTier, heightMod, intPoint, edgeOut, otherOut, startWidth, endWidth, otherClockwise)
+local function MakeMapBorderEdgeHit(tierFlood, cellTier, otherTier, heightMod, intPoint, edgeOut, otherOut, startWidth, endWidth, wantCurve, otherClockwise)
 	local curve = {}
-	for i = 1, #HIT_EDGE_POINTS do
-		local randRad = (i - 1)*(#HIT_EDGE_POINTS - i)/(#HIT_EDGE_POINTS*2)
-		local nextPoint = GetRandomPointInCircle(HIT_EDGE_POINTS[i], 0.04*randRad)
+	local edgePoints = (wantCurve and HIT_EDGE_STRAIGHT) or HIT_EDGE_STRAIGHT
+	for i = 1, #edgePoints do
+		local randRad = (i - 1)*(#edgePoints - i)/(#edgePoints*2)
+		local nextPoint = GetRandomPointInCircle(edgePoints[i], 0.025*randRad)
 		curve[#curve + 1] = Add(intPoint, ChangeBasis(nextPoint, edgeOut[1], otherOut[1], edgeOut[2], otherOut[2]))
 		--PointEcho(curve[#curve], i)
 	end
@@ -1678,8 +1703,10 @@ local function GenerateEdgeMeetTerrain(tierFlood, heightMod, cells, cell, edge, 
 			return
 		end
 		local otherTier = otherEdge.otherFace[cellIndex].tier
+		local wantCurve = (otherEdge.length > edge.length or otherEdge.length > 500)
 		otherClockwise = not otherClockwise
-		MakeMapBorderEdgeHit(tierFlood, cellTier, otherTier, heightMod, intPoint, otherOut, edgeOut, otherEdge.terrainWidth, edge.terrainWidth, otherClockwise)
+		--LineEcho(otherEdge, otherEdge.terrainWidth .. ", " .. edge.terrainWidth)
+		MakeMapBorderEdgeHit(tierFlood, cellTier, otherTier, heightMod, intPoint, otherOut, edgeOut, otherEdge.terrainWidth, otherEdge.terrainWidth, wantCurve, otherClockwise)
 		return
 	end
 	
@@ -1691,7 +1718,9 @@ local function GenerateEdgeMeetTerrain(tierFlood, heightMod, cells, cell, edge, 
 			return
 		end
 		local otherTier = edge.otherFace[cellIndex].tier
-		MakeMapBorderEdgeHit(tierFlood, cellTier, otherTier, heightMod, intPoint, edgeOut, otherOut, edge.terrainWidth, otherEdge.terrainWidth, otherClockwise)
+		local wantCurve = (edge.length > otherEdge.length or edge.length > 500)
+		--LineEcho(edge, edge.terrainWidth .. ", " .. otherEdge.terrainWidth)
+		MakeMapBorderEdgeHit(tierFlood, cellTier, otherTier, heightMod, intPoint, edgeOut, otherOut, edge.terrainWidth, edge.terrainWidth, wantCurve, otherClockwise)
 		return
 	end
 	
@@ -1709,7 +1738,7 @@ local function GenerateEdgeMeetTerrain(tierFlood, heightMod, cells, cell, edge, 
 	local curve = {}
 	for i = 1, #CIRCLE_POINTS do
 		local randRad = (i - 1)*(#CIRCLE_POINTS - i)/(#CIRCLE_POINTS*2)
-		local nextPoint = GetRandomPointInCircle(CIRCLE_POINTS[i], 0.025*randRad)
+		local nextPoint = GetRandomPointInCircle(CIRCLE_POINTS[i], 0.02*randRad)
 		curve[#curve + 1] = Add(intPoint, ChangeBasis(nextPoint, edgeOut[1], otherOut[1], edgeOut[2], otherOut[2]))
 		--PointEcho(curve[#curve], i)
 	end
@@ -1719,8 +1748,8 @@ local function GenerateEdgeMeetTerrain(tierFlood, heightMod, cells, cell, edge, 
 end
 
 local function GenerateEdgeTerrain(heightMod, waveMod, edge)
-	ApplyLineDistanceFunc(false, edge.iglooBaseTier, edge.IglooAimTier, heightMod, waveMod, edge[1], edge[2],
-		edge.iglooFunc, edge.iglooParams, edge.iglooStartWidth, edge.iglooEndWidth, edge.iglooStart, edge.iglooEnd, false, false, 1)
+	ApplyLineDistanceFunc(false, edge.iglooBaseTier, edge.IglooAimTier, heightMod, waveMod, edge.iglooStart, edge.iglooEnd,
+		edge.iglooFunc, edge.iglooParams, edge.iglooWidthStart, edge.iglooWidthEnd, 0, 1, false, false, 1)
 end
 
 local function ProcessEdges(cells, edges)
@@ -1828,9 +1857,11 @@ local function GenerateCellTiers(params, cells, waveFunc)
 	end
 	std = sqrt(std/#cells)
 	
-	local waterFator = 0.2 + 0.8*random()
+	local waterFactor = 0.2 + 0.8*random()
 	
-	local bucketWidth = params.bucketBase + std*params.bucketStdMult
+	local bucketWidth = (params.bucketBase + std*(params.bucketStdMult + random()*params.bucketStdMultRand) + random()*params.bucketRandomOffset)
+	bucketWidth = bucketWidth*(params.bucketSizeMult + random()*params.bucketSizeMultRand)
+	Spring.Echo("std", std, "bucketWidth", bucketWidth)
 	local tierHeight = params.tierHeight
 	local tierConst = tierHeight + params.tierConst
 	local tierMin, tierMax = 1000, -1000
@@ -1840,7 +1871,7 @@ local function GenerateCellTiers(params, cells, waveFunc)
 	for i = 1, #cells do
 		local cell = cells[i]
 		local height = waveFunc(cell.site[1], cell.site[2])
-		local tier = math.floor((height + heightOffset + bucketWidth*waterFator)/bucketWidth)
+		local tier = math.floor((height + heightOffset + bucketWidth*waterFactor)/bucketWidth)
 		
 		if cell.adjacentToBorder and params.mapBorderTier then
 			tier = params.mapBorderTier
@@ -1910,6 +1941,8 @@ local function SetEdgeTierParameters(edge, minLandTier)
 	edge.minEndTierCount = 3
 	for i = 1, #edge.neighbours do
 		local nbhd = edge.neighbours[i]
+		
+		-- Count tiers
 		nbhd.endTierCount = 1
 		if edge.lowTier ~= edge.highTier then
 			nbhd.endTierCount = 2
@@ -1928,6 +1961,15 @@ local function SetEdgeTierParameters(edge, minLandTier)
 		end
 		edge.maxEndTierCount = max(edge.maxEndTierCount, nbhd.endTierCount)
 		edge.minEndTierCount = min(edge.minEndTierCount, nbhd.endTierCount)
+		
+		-- Get tier differences
+		nbhd.lowTier = edge.lowTier
+		nbhd.highTier = edge.highTier
+		if nbhd.endFace then
+			nbhd.lowTier = min(nbhd.endFace.tier, edge.lowTier)
+			nbhd.highTier = max(nbhd.endFace.tier, edge.highTier)
+		end
+		nbhd.tierDiff = nbhd.highTier - nbhd.lowTier
 	end
 end
 
@@ -1954,16 +1996,19 @@ local function SetEdgePassability(params, edge, minLandTier)
 		end
 	end
 	
-	if edge.underwater or (edge.lowTier < minLandTier and edge.tierDiff <= 1) then
+	if edge.tierDiff <= 1 then
 		-- Always make a ramp.
 		edge.terrainWidth = params.rampWidth
-	elseif edge.lowTier < minLandTier and edge.tierDiff >= 2 then
+	elseif edge.underwater or (edge.lowTier < minLandTier and edge.tierDiff <= 2) then
+		-- Always make a ramp.
+		edge.terrainWidth = params.rampWidth
+	elseif edge.lowTier < minLandTier and edge.tierDiff <= 3 then
 		-- Make a ramp 95% of the time
-		edge.terrainWidth = ((0.95 < random()) and params.rampWidth) or params.cliffWidth
+		edge.terrainWidth = ((0.95 < random()) and params.rampWidth) or params.cliffWidth 
 	elseif edge.length < 600 and ((impassCount == 0) or (matchCount*0.7 - impassCount >= 0)) and not edge.adjToStart and random() < ((edge.pointAtBorder and 0.3) or 0.75) then
 		-- Make a cliff on short high tier difference edges
 		edge.terrainWidth = ((impassCount == 0) and params.rampWidth) or params.cliffWidth
-	elseif edge.tierDiff <= 1 then
+	elseif edge.tierDiff <= 2 then
 		if edge.adjToStart then
 			edge.terrainWidth = params.rampWidth
 		elseif edge.pointAtBorder then
@@ -1977,25 +2022,27 @@ local function SetEdgePassability(params, edge, minLandTier)
 	end
 	
 	-- Make a veh-pathable mega ramp.
-	if edge.terrainWidth >= params.rampWidth and edge.tierDiff <= 3 then
-		if edge.tierDiff == 2 and edge.lowTier < minLandTier and random() < 0.95 then
-			edge.terrainWidth = edge.terrainWidth*edge.tierDiff*1.4
+	if edge.terrainWidth >= params.rampWidth and edge.tierDiff <= 5 then
+		if edge.tierDiff >= 2 and edge.lowTier < minLandTier and random() < 0.95 then
+			edge.terrainWidth = edge.terrainWidth*edge.tierDiff*1.45
 		else
-			if edge.tierDiff == 2 and (random() < 0.65 + ((edge.pointAtBorder and 0.25) or 0)) then
-				edge.terrainWidth = edge.terrainWidth*edge.tierDiff*1.4
-			end
-			if edge.tierDiff == 3 and (random() < 0.4) then
-				edge.terrainWidth = edge.terrainWidth*edge.tierDiff*1.4
+			if edge.tierDiff >= 2 and (random() < 0.65 + ((edge.pointAtBorder and 0.25) or 0)) then
+				edge.terrainWidth = edge.terrainWidth*edge.tierDiff*1.45
+			elseif edge.tierDiff >= 4 and (random() < 0.4) then
+				edge.terrainWidth = edge.terrainWidth*edge.tierDiff*1.45
 			end
 		end
 	end
 	
 	if edge.terrainWidth <= params.cliffWidth and not edge.adjToStart then
 		edge.cliffEdge = true
+		if random() < params.steepCliffChance then
+			edge.terrainWidth = params.steepCliffWidth
+		end
 		edge.terrainWidth = edge.terrainWidth*edge.tierDiff
 	end
 	
-	if (edge.terrainWidth/edge.tierDiff <= params.cliffWidth) or (edge.tierDiff > 3) then
+	if (edge.terrainWidth/edge.tierDiff <= params.steepCliffChance) then
 		edge.vehPass = false
 		edge.botPass = false
 	elseif (edge.terrainWidth/edge.tierDiff >= params.rampWidth) then
@@ -2005,123 +2052,149 @@ local function SetEdgePassability(params, edge, minLandTier)
 		edge.vehPass = false
 		edge.botPass = true
 	end
+	
+	LineEchoMirror(edge, edge.terrainWidth)
 end
 
 local function SetEdgeSoloTerrain(params, edge)
-	if edge.tierDiff ~= 0 then
+	if edge.tierDiff > 1 then
+		--LineEchoMirror(edge, "tierDiff > 1")
 		return
 	end
 	
 	if edge.underwater then
-		LineEchoMirror(edge, "UW")
+		--LineEchoMirror(edge, "UW")
 		return
 	end
 	
 	if IsEdgeAdjacentToStart(edge) then
-		LineEchoMirror(edge, "Adj START")
+		--LineEchoMirror(edge, "Adj START")
 		return
 	end
 	
 	if not params.borderIgloos then
 		if #edge.faces == 1 then
-			LineEchoMirror(edge, "ON BORDER")
+			--LineEchoMirror(edge, "ON BORDER")
 			return
 		end
 		if edge.pointAtBorder then
-			LineEchoMirror(edge, "POINT BORDER")
+			--LineEchoMirror(edge, "POINT BORDER")
+			return
+		end
+	end
+	local edgeNbhd = edge.neighbours
+	
+	-- Do not block off passages
+	if edge.minEndTierCount > 1 then
+		-- allow a special case to make an igloo on open shallow ramps
+		if edge.minEndTierCount > 2 then
+			--LineEchoMirror(edge, "minEndTierCount > 2")
+			return
+		end
+		if edge.tierDiff ~= 1 then
+			--LineEchoMirror(edge, "tierDiff ~= 1")
+			return
+		end
+		local allowCount = 0
+		for i = 1, #edgeNbhd do
+			local nbhd = edgeNbhd[i]
+			if nbhd.endFace and nbhd.minLength > params.iglooTierDiffOpenThreshold
+					and (nbhd.endFace.tier == edge.lowTier or nbhd.endFace.tier == edge.highTier) then
+				allowCount = allowCount + 1
+			end
+		end
+		if allowCount < 2 then
+			--LineEchoMirror(edge, "allowCount < 2")
 			return
 		end
 	end
 	
-	-- Do not block off passages
-	if edge.minEndTierCount > 1 then
-		return
-	end
-	local edgeNbhd = edge.neighbours
-	
+	-- Check for open ends - ends without a lot of terrain around them
 	local openEnd = {}
-	local partiallyOpenEnd = {}
 	for i = 1, #edgeNbhd do
 		local nbhd = edgeNbhd[i]
-		if nbhd.endTierCount == 1 then
+		if (nbhd.tierDiff <= 1 and nbhd.minLength > params.iglooTierDiffOpenThreshold) then
+			openEnd[i] = true
+		elseif nbhd.endTierCount == 1 and nbhd.endFace then
 			local open = true
-			local maybePartialOpen = true 
+			local maybePartialOpen = true
 			for n = 1, #nbhd do
 				local otherEdge = nbhd[n]
 				if otherEdge.maxEndTierCount > 1 and otherEdge.length < params.openEdgeIglooThreshold then
 					open = false
-					if not (otherEdge.length > params.partialOpenEdgeIglooThreshold and edge.length < params.partialOpenEdgeIglooThreshold) then
-						maybePartialOpen = false
-					end
 				end
 			end
 			openEnd[i] = open
-			partiallyOpenEnd[i] = (not open) and maybePartialOpen
-		end
-	end
-	
-	-- Force one end open if both are a bit too thin.
-	if partiallyOpenEnd[1] and partiallyOpenEnd[2] then
-		if edgeNbhd[1].minLength > edgeNbhd[2].minLength then
-			openEnd[1] = true
-		else
-			openEnd[2] = true
 		end
 	end
 	
 	if not (openEnd[1] or openEnd[2]) then
-		LineEchoMirror(edge, "NOT OPEN")
+		--LineEchoMirror(edge, "NOT OPEN")
 		return
 	end
 	
-	local iglooTier = false
-	for i = 1, #edgeNbhd do
-		if edgeNbhd[i].endFace and edgeNbhd[i].endFace.tier ~= edge.lowTier then
-			iglooTier = edgeNbhd[i].endFace.tier
-		end
+	local iglooTier = edge.lowTier + 1
+	local startScale = (random()*0.6 - 0.28)*params.iglooHeightMult
+	local sign = ((startScale > 0) and 1) or -1
+	if abs(startScale) < (0.4 + 0.15*random())*params.iglooBoostThreshold then
+		startScale = 0.7*sign + 1.1*startScale
 	end
 	
-	if not iglooTier then
-		iglooTier = edge.lowTier + (floor(random()*2)*2 - 1)*floor(random()*1.3)
-	end
-	
-	local startScale = (random()*0.8 - 0.35)*params.iglooHeightMult
-	local effectMult = (0.8 + 0.5*random())
-	local width = 0.21*edge.length + 60 + 160*random()
+	local effectMult = (0.6 + 0.5*random())
+	local width = (0.21*edge.length + 35 + 160*random())
 	local midDist = Dist(GetMidpoint(edge[1], edge[2]), {MAP_X*0.5, MAP_Z*0.5})
-	local iglooLength = min(edge.length, (50 + 70*random())*params.iglooLengthMult)/edge.length
+	local iglooLength = 30 + 80*random()*params.iglooLengthMult
 	
+	local endScale = startScale
+	local endWidth = width
+	if openEnd[1] and openEnd[2] then
+		local mult = (0.75 + 0.3*random())
+		endScale = endScale*(mult + random()*0.2 - 0.1)
+		endWidth = endWidth*(mult + random()*0.1 - 0.05)
+	else
+		local mult = (0.05 + 1.1*random())
+		endScale = endScale*(mult + random()*0.2 - 0.1)
+		endWidth = endWidth*((mult + random()*0.2 - 0.1)*0.5 + 0.5)
+	end
+	
+	if random() < 0.3*random() + 1.6*max(0, 1 - midDist/1800) then
+		local mult = (1.3 + 0.8*random())
+		iglooLength = iglooLength*mult
+		endWidth = endWidth*(mult*0.5 + 0.5)
+		endScale = endScale/mult
+	end
+	
+	iglooLength = min(edge.length, iglooLength)
 	-- Prevent long large and high igloos.
-	if edge.length > 220 and abs(1.15*startScale*effectMult) > width/edge.length then
-		effectMult = effectMult*(width/edge.length)/abs(1.15*startScale*effectMult)
+	if iglooLength > 180 and abs(params.longIglooFlatten*startScale*effectMult) > width/edge.length then
+		effectMult = effectMult*(width/edge.length)/abs(params.longIglooFlatten*startScale*effectMult)
 	end
 	
 	local iglooScale = {
-		1,
-		1,
+		startScale * effectMult,
+		endScale * effectMult,
 	}
 	local iglooWidth = {
 		width,
-		width,
+		endWidth,
 	}
 	
 	edge.iglooFunc       = MakeWaveFuncIgloo
 	edge.iglooBaseTier   = edge.lowTier
-	edge.IglooAimTier    = iglooTier
-	edge.iglooStartWidth = iglooWidth[1]
-	edge.iglooEndWidth   = iglooWidth[2]
+	edge.IglooAimTier    = edge.lowTier + 1
+	edge.iglooWidthStart = iglooWidth[1]
+	edge.iglooWidthEnd   = iglooWidth[2]
 	
 	if openEnd[1] and openEnd[2] then
-		edge.iglooStart = 0.5 - iglooLength*5
-		edge.iglooEnd   = 0.5 + iglooLength*0.5
+		edge.iglooStart = Add(edge[1], Mult(edge.length*0.5 - iglooLength*0.5, edge.unit))
+		edge.iglooEnd   = Add(edge[1], Mult(edge.length*0.5 + iglooLength*0.5, edge.unit))
 	elseif openEnd[1] then
-		edge.iglooStart = 0
-		edge.iglooEnd   = iglooLength
+		edge.iglooStart = edge[2]
+		edge.iglooEnd   = Add(edge[1], Mult(edge.length - iglooLength, edge.unit))
 	else
-		edge.iglooStart = 1 - iglooLength
-		edge.iglooEnd   = 1
+		edge.iglooStart = edge[1]
+		edge.iglooEnd   = Add(edge[1], Mult(iglooLength, edge.unit))
 	end
-	
 	
 	edge.iglooParams = {
 		startScale = iglooScale[1],
@@ -2129,19 +2202,18 @@ local function SetEdgeSoloTerrain(params, edge)
 	}
 	
 	if edge.selfMirror then
-		edge.iglooStartWidth        = edge.iglooEndWidth
-		edge.iglooParams.startScale = edge.iglooParams.endScale
-		edge.iglooBaseTier         = edge.IglooAimTier
-		edge.iglooStart             = edge.iglooEnd
+		edge.iglooWidthStart        = edge.iglooWidthEnd
+		edge.iglooParams.endScale   = edge.iglooParams.startScale
+		edge.iglooBaseTier          = edge.IglooAimTier
+		edge.iglooStart             = ApplyRotSymmetry(edge.iglooEnd)
 	end
 	
-	LineEchoMirror(edge, "Make Igloo " .. 
-		edge.iglooBaseTier .. ", " ..
-		edge.IglooAimTier .. ", " ..
-		edge.iglooStart .. ", " ..
-		edge.iglooEnd .. ", " ..
-		""
-	)
+	--LineEchoMirror(edge, "Make Igloo " .. 
+	--	edge.iglooBaseTier .. ", " ..
+	--	edge.IglooAimTier .. ", " ..
+	--	iglooLength .. ", " ..
+	--	""
+	--)
 	
 	return iglooTier
 end
@@ -2161,14 +2233,16 @@ local function MirrorEdgePassability(edge)
 	mirror.botPass      = edge.botPass
 	mirror.landPass     = edge.landPass
 	
-	mirror.iglooStartWidth = edge.iglooStartWidth
-	mirror.iglooEndWidth   = edge.iglooEndWidth
-	mirror.iglooStart      = edge.iglooStart
-	mirror.iglooEnd        = edge.iglooEnd
-	mirror.iglooBaseTier  = edge.iglooBaseTier
-	mirror.IglooAimTier    = edge.IglooAimTier
-	mirror.iglooFunc       = edge.iglooFunc
-	mirror.iglooParams     = edge.iglooParams
+	if edge.iglooFunc then
+		mirror.iglooWidthStart = edge.iglooWidthStart
+		mirror.iglooWidthEnd   = edge.iglooWidthEnd
+		mirror.iglooStart      = ApplyRotSymmetry(edge.iglooStart)
+		mirror.iglooEnd        = ApplyRotSymmetry(edge.iglooEnd)
+		mirror.iglooBaseTier   = edge.iglooBaseTier
+		mirror.IglooAimTier    = edge.IglooAimTier
+		mirror.iglooFunc       = edge.iglooFunc
+		mirror.iglooParams     = edge.iglooParams
+	end
 end
 
 local function GenerateEdgePassability(params, edgesSorted, tierMin, tierMax, minLandTier)
@@ -2275,12 +2349,16 @@ local function ApplyHeightSmooth(rawHeights, filter)
 		heights[x] = {}
 		for z = 0, MAP_Z, SQUARE_SIZE do
 			local thisHeight = rawHeights[x][z]
-			local heightSum = 0
-			for i = 1, #filter do
-				local sx, sz = x + filter[i][1], z + filter[i][2]
-				heightSum = heightSum + ((rawHeights[sx] and rawHeights[sx][sz]) or thisHeight)*filter[i][3]
+			if DO_SMOOTHING then
+				local heightSum = 0
+				for i = 1, #filter do
+					local sx, sz = x + filter[i][1], z + filter[i][2]
+					heightSum = heightSum + ((rawHeights[sx] and rawHeights[sx][sz]) or thisHeight)*filter[i][3]
+				end
+				heights[x][z] = heightSum*filterMult
+			else
+				heights[x][z] = thisHeight
 			end
-			heights[x][z] = heightSum*filterMult
 		end
 	end
 	
@@ -2567,7 +2645,7 @@ local function AllocateMetalSpots(cells, edges, minLandTier, startCell, params)
 		local mexAssignment = 1
 		local distBetweenMirror = mexCell.mirror and Dist(mexCell.averageMid, mexCell.mirror.averageMid)
 		if (not mexCell.adjacentToStart) and (mexCell.mirror and distBetweenMirror > 2000) then
-			local doubleChance = max(0.02, min(0.3, mexCell.mexAlloc*0.2))
+			local doubleChance = max(0.02, min(0.45, mexCell.mexAlloc*0.3))
 			if mexCell.mexAlloc and (random() < doubleChance) and (not mexCell.unreachable) then
 				mexAssignment = 2
 			end
@@ -2756,8 +2834,10 @@ local function GetTerrainStructure(params)
 	
 	local startCell = params.StartPositionFunc(cells, edgesSorted, waveFunc, GetWaveHeightMult(tierMin, tierMax, params), minLandTier, params)
 	
-	for i = 1, #cells do
-		PointEcho(cells[i].site, "Tier " .. cells[i].tier) 
+	if PRINT_TIERS then
+		for i = 1, #cells do
+			PointEcho(cells[i].site, "Tier " .. cells[i].tier) 
+		end
 	end
 	
 	tierMin, tierMax = GenerateEdgePassability(params, edgesSorted, tierMin, tierMax, minLandTier)
@@ -2799,28 +2879,36 @@ local toDrawEdges = nil
 local waitCount = 0
 
 local newParams = {
-	startPoint = {600, 600},
-	startPointSize = 500,
-	points = 17,
-	midPoints = 3,
-	midPointRadius = 1050,
+	startPoint = {550, 550},
+	startPointSize = 600,
+	points = 16,
+	midPoints = 2,
+	midPointRadius = 850,
 	midPointSpace = 220,
 	minSpace = 180,
-	maxSpace = 480,
+	maxSpace = 460,
 	pointSplitRadius = 520,
 	edgeBias = 1.25,
-	openEdgeIglooThreshold = 250,
-	partialOpenEdgeIglooThreshold = 140,
+	longIglooFlatten = 1.9,
+	iglooTierDiffOpenThreshold = 300,
+	openEdgeIglooThreshold = 220,
 	iglooHeightMult = 0.55,
+	iglooBoostThreshold = 1.3,
 	iglooLengthMult = 1,
-	cliffWidth = 36,
-	rampWidth  = 230,
-	tierHeight = 100,
-	tierConst = 32,
-	generalWaveMod = 0.01, --0.8,
-	waveDirectMult = 0.3,
-	bucketBase = 52,
-	bucketStdMult = 0.55,
+	cliffWidth = 38,
+	steepCliffWidth = 18,
+	steepCliffChance = 0.4,
+	tierHeight = 55,
+	rampWidth  = 120,
+	tierConst = 38,
+	generalWaveMod = 1,
+	waveDirectMult = 0.5,
+	bucketBase = 30,
+	bucketRandomOffset = 60,
+	bucketStdMult = 0.3,
+	bucketStdMultRand = 0.2,
+	bucketSizeMult = 0.55,
+	bucketSizeMultRand = 0.62,
 	heightOffsetFactor = 0.9,
 	mapBorderTier = false,
 	nonBorderSeaNeighbourLimit = 0, -- Only allow lone lakes.
