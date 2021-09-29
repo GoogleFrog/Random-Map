@@ -2142,6 +2142,16 @@ local function SetEdgeSoloTerrain(params, edge)
 	local width = (0.21*edge.length + 35 + 160*random())
 	local iglooLength = 30 + 80*random()*params.iglooLengthMult
 	
+	-- Reduce the size of igloos on large terrain differences.
+	for i = 1, #edgeNbhd do
+		local nbhd = edgeNbhd[i]
+		if (not openEnd[i]) and nbhd.tierDiff > 1 then
+			effectMult = effectMult*(0.15 + random()*1.5)
+			width = width*(0.7 + random()*0.3)
+		end
+	end
+	
+	-- Randomly boost some igloos, with a bias for the middle.
 	if abs(startScale) < (0.4 + 0.15*random())*params.iglooBoostThreshold + 0.8*midFactor then
 		startScale = 0.7*sign + 1.1*startScale
 	end
