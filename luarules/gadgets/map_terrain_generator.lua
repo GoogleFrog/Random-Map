@@ -24,6 +24,7 @@ local TIME_MAP_GEN = false
 local DRAW_EDGES = true
 local PRINT_TIERS = true
 local DO_SMOOTHING = true
+local RELOAD_REGEN = false
 
 --------------------------------------------------------------------------------
 --------------------------------------------------------------------------------
@@ -1350,10 +1351,9 @@ local function TerraformByHeights(heights)
 			end
 			Spring.ClearWatchDogTimer()
 		end
-		
-		Spring.SetGameRulesParam("ground_min_override", minHeight)
-		Spring.SetGameRulesParam("ground_max_override", maxHeight)
 	end
+	Spring.SetGameRulesParam("ground_min_override", minHeight)
+	Spring.SetGameRulesParam("ground_max_override", maxHeight)
 
 	Spring.SetHeightMapFunc(DoTerra)
 end
@@ -2969,6 +2969,9 @@ end
 local timeMap = TIME_MAP_GEN
 function gadget:Initialize()
 	if not timeMap then
+		if (not RELOAD_REGEN) and Spring.GetGameFrame() > 0 then
+			return false
+		end
 		MakeMap()
 	end
 end

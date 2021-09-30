@@ -14,7 +14,7 @@ function gadget:GetInfo()
 		date      = "26 September 2021",
 		license   = "GNU GPL, v2 or later",
 		layer     = 10,
-		enabled   = true, --  loaded by default?
+		enabled   = false, --  loaded by default?
 	}
 end
 
@@ -231,6 +231,7 @@ local function SetMapTexture(texturePool, mapTexX, mapTexZ, topTexX, topTexZ, to
 
 			// admix ramps (maybe replace texture later)
 			factor = 0.25*smoothstep(0.1, softCliffMin, slope);
+			factor = factor * (factor / 7.0 - floor(factor / 7.0)) / 7.0;
 			gl_FragColor = mix(gl_FragColor,texture2D(tex7,coord),factor);
 
 			// admix soft cliffs (replace texture later)
