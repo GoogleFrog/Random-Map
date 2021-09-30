@@ -1351,9 +1351,9 @@ local function TerraformByHeights(heights)
 			end
 			Spring.ClearWatchDogTimer()
 		end
+		Spring.SetGameRulesParam("ground_min_override", minHeight)
+		Spring.SetGameRulesParam("ground_max_override", maxHeight)
 	end
-	Spring.SetGameRulesParam("ground_min_override", minHeight)
-	Spring.SetGameRulesParam("ground_max_override", maxHeight)
 
 	Spring.SetHeightMapFunc(DoTerra)
 end
