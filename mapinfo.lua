@@ -50,7 +50,7 @@ local mapinfo = {
 	},
 	splats = {
 		TexScales = { 0.00471, 0.00097, 0.0013, 0.0027 },
-		TexMults = { 0.5, 0.21, 0.5, 0.65 },
+		TexMults = { 0.5, 0.31, 0.5, 0.65 },
 	},
 
 	atmosphere = {
