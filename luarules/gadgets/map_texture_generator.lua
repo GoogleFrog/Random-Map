@@ -14,7 +14,7 @@ function gadget:GetInfo()
 		date      = "26 September 2021",
 		license   = "GNU GPL, v2 or later",
 		layer     = 10,
-		enabled   = false, --  loaded by default?
+		enabled   = true, --  loaded by default?
 	}
 end
 
@@ -46,6 +46,7 @@ local glCreateTexture   = gl.CreateTexture
 local glTexRect         = gl.TexRect
 local glRect            = gl.Rect
 local glDeleteTexture   = gl.DeleteTexture
+local glDeleteShader    = gl.DeleteShader
 local glRenderToTexture = gl.RenderToTexture
 local glCreateShader    = gl.CreateShader
 local glUseShader       = gl.UseShader
@@ -165,83 +166,8 @@ local function SetMapTexture(texturePool, mapTexX, mapTexZ, topTexX, topTexZ, to
 		  gl_Position    = gl_Vertex;
 		}
 	  ]]
-	  
-	local fragSrc = [[
-        uniform sampler2D tex0; // unqualified heightfield
-        uniform sampler2D tex1; // 2d normals
-		uniform sampler2D tex2; // hard rock texture
-		uniform sampler2D tex3; // flats texture
-		uniform sampler2D tex4; // beach texture
-		uniform sampler2D tex5; // mid-altitude flats
-		uniform sampler2D tex6; // high-altitude flats
-		uniform sampler2D tex7; // ramp/hill texture
 
-		uniform float minHeight;
-		uniform float maxHeight;
-
-		// should these be uniforms?
-		const float hardCliffMax = 1.0; // sharpest bot-blocking cliff
-		const float hardCliffMin = 0.58778525229; // least sharp bot-blocking cliff
-
-		const float softCliffMax = hardCliffMin;
-		const float softCliffMin = 0.30901699437;
-
-
-		vec2 rotate(vec2 v, float a) {
-			float s = sin(a);
-			float c = cos(a);
-			mat2 m = mat2(c, -s, s, c);
-			return m * v;
-		}
-
-		void main()
-		{
-			vec2 coord = vec2(gl_TexCoord[0].s,0.5*gl_TexCoord[0].t);
-			vec4 norm = texture2D(tex1, coord);
-            vec2 norm2d = vec2(norm.x, norm.a);
-			float slope = length(norm2d);
-			float factor = 0.0;
-			float height = texture2D(tex0,coord).r;
-
-			// tile somewhat
-			coord = 8.0*coord;
-
-			// base texture
-			gl_FragColor = texture2D(tex2,coord);
-
-			// ---- altitude textures ----
-
-			// admix depths
-			factor = smoothstep(-5.0,-17.0,height);
-			gl_FragColor = mix(gl_FragColor,vec4(0.6,0.5,0.0,1.0),factor);
-
-			// admix beaches
-			factor = clamp(0.1*(10.0-abs(height)),0.0,1.0);
-			gl_FragColor = mix(gl_FragColor,texture2D(tex4,coord),factor);
-
-			// admix midlands
-			factor = clamp(1.0-0.02*abs(height-150.0),0.0,1.0);
-			gl_FragColor = mix(gl_FragColor,texture2D(tex5,coord),factor);
-
-			// admix highlands
-			factor = smoothstep(300.0,400.0,height);
-			gl_FragColor = mix(gl_FragColor,texture2D(tex6,coord),factor);
-
-			// ---- slope textures ----
-
-			// admix ramps (maybe replace texture later)
-			factor = 0.25*smoothstep(0.1, softCliffMin, slope);
-			gl_FragColor = mix(gl_FragColor,texture2D(tex7,coord),factor);
-
-			// admix soft cliffs (replace texture later)
-			factor = 0.5*smoothstep(softCliffMin, softCliffMax, slope);
-			gl_FragColor = mix(gl_FragColor,texture2D(tex7,coord),factor);
-
-			// admix hard cliffs
-			factor = smoothstep(hardCliffMin, hardCliffMax, slope);
-			gl_FragColor = mix(gl_FragColor,texture2D(tex3,coord),factor);
-		}
-	]]
+	local fragSrc = VFS.LoadFile("shaders/map_diffuse_generator.glsl");
 
 	local diffuseShader = glCreateShader({
 		vertex = vertSrc,
@@ -255,6 +181,7 @@ local function SetMapTexture(texturePool, mapTexX, mapTexZ, topTexX, topTexZ, to
 			tex5 = 5,
 			tex6 = 6,
 			tex7 = 7,
+			tex8 = 8,
 		},
 	});
 
@@ -289,24 +216,35 @@ local function SetMapTexture(texturePool, mapTexX, mapTexZ, topTexX, topTexZ, to
 			glTexture(0, false)
 			glTexture(1,"$normals")
 			glTexture(1, false)	
-			glTexture(2,":l:unittextures/tacticalview/thornworld/diffuse/flats.png");
+			glTexture(2,":l:unittextures/tacticalview/terran/diffuse/flats.png");
 			glTexture(2, false)
-			glTexture(3,":l:unittextures/tacticalview/thornworld/diffuse/cliffs.png");
+			glTexture(3,":l:unittextures/tacticalview/terran/diffuse/cliffs.png");
 			glTexture(3, false)
-			glTexture(4,":l:unittextures/tacticalview/thornworld/diffuse/beach.jpg");
+			glTexture(4,":l:unittextures/tacticalview/terran/diffuse/beach.jpg");
 			glTexture(4, false)
-			glTexture(5,":l:unittextures/tacticalview/thornworld/diffuse/midlands.jpg");
+			glTexture(5,":l:unittextures/tacticalview/terran/diffuse/midlands.png");
 			glTexture(5, false)
-			glTexture(6,":l:unittextures/tacticalview/thornworld/diffuse/highlands.png");
+			glTexture(6,":l:unittextures/tacticalview/terran/diffuse/highlands.png");
 			glTexture(6, false)
-			glTexture(7,":l:unittextures/tacticalview/thornworld/diffuse/slopes.png");
+			glTexture(7,":l:unittextures/tacticalview/terran/diffuse/slopes.png");
 			glTexture(7, false)
+			glTexture(8,":l:unittextures/tacticalview/terran/diffuse/ramps.png");
+			glTexture(8, false)
 			gl.TexRect(-1,-1,1,0,false,true)
 			glUseShader(0)
 		end)
 
 		Sleep()
 		Spring.ClearWatchDogTimer()
+
+		glDeleteTexture(":l:unittextures/tacticalview/terran/diffuse/flats.png");
+		glDeleteTexture(":l:unittextures/tacticalview/terran/diffuse/cliffs.png");
+		glDeleteTexture(":l:unittextures/tacticalview/terran/diffuse/beach.jpg");
+		glDeleteTexture(":l:unittextures/tacticalview/terran/diffuse/midlands.png");
+		glDeleteTexture(":l:unittextures/tacticalview/terran/diffuse/highlands.png");
+		glDeleteTexture(":l:unittextures/tacticalview/terran/diffuse/slopes.png");
+		glDeleteTexture(":l:unittextures/tacticalview/terran/diffuse/ramps.png");
+		glDeleteShader(diffuseShader);
 		glTexture(false)
 		
 		local cur = Spring.GetTimer()

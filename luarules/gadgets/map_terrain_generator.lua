@@ -21,10 +21,10 @@ end
 local MIN_EDGE_LENGTH = 10
 local DISABLE_TERRAIN_GENERATOR = false
 local TIME_MAP_GEN = false
-local DRAW_EDGES = true
-local PRINT_TIERS = true
+local DRAW_EDGES = false
+local PRINT_TIERS = false
 local DO_SMOOTHING = true
-local RELOAD_REGEN = true
+local RELOAD_REGEN = false
 local SHOW_WAVEMAP = false
 
 --------------------------------------------------------------------------------
