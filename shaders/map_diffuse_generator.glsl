@@ -115,7 +115,7 @@ void main()
 	
 	// Show mountains over cliffs
 	if (height > 255.0) {
-		factor = smoothstep(255.0,290.0,height)*(1.0 - slope*0.95 + 0.05);
+		factor = smoothstep(255.0,290.0,height)*max(0, 1.0 - slope*2.0 + 0.05);
 		gl_FragColor = mix(gl_FragColor,texture2D(tex6,coord*min(0.82, 0.8 + 0.001*slope)),factor);
 	}
 }
