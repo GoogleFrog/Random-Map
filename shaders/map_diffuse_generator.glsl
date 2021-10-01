@@ -45,15 +45,15 @@ void main()
 
     // admix depths (actually same as beaches atm)
     factor = smoothstep(-5.0,-17.0,height);
-    gl_FragColor = mix(gl_FragColor,texture2D(tex4,coord*8),factor);
+    gl_FragColor = mix(gl_FragColor,texture2D(tex4,coord*8.0),factor);
 
     // admix beaches
     factor = clamp(0.1*(10.0-abs(height)),0.0,1.0);
-    gl_FragColor = mix(gl_FragColor,texture2D(tex4,coord*8),factor);
+    gl_FragColor = mix(gl_FragColor,texture2D(tex4,coord*8.0),factor);
 
     // admix midlands
     factor = smoothstep(50.0,150.0,height) * (1.0-slope);
-    gl_FragColor = mix(gl_FragColor,texture2D(tex5,coord*3),factor);
+    gl_FragColor = mix(gl_FragColor,texture2D(tex5,coord*3.0),factor);
 
     // admix highlands
     factor = smoothstep(200.0,300.0,height);
@@ -63,11 +63,11 @@ void main()
 
     // admix ramps
     factor = 0.25*smoothstep(0.1, softCliffMin, slope);
-    gl_FragColor = mix(gl_FragColor,texture2D(tex8,coord*2),factor);
+    gl_FragColor = mix(gl_FragColor,texture2D(tex8,coord*2.0),factor);
 
     // admix hillsides (replace texture later)
     factor = 0.5*smoothstep(softCliffMin, softCliffMax, slope);
-    gl_FragColor = mix(gl_FragColor,texture2D(tex7,coord*2),factor);
+    gl_FragColor = mix(gl_FragColor,texture2D(tex7,coord*2.0),factor);
 
     // admix cliffsides
     factor = smoothstep(hardCliffMin, hardCliffMax, slope);

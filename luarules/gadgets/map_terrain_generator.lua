@@ -21,10 +21,10 @@ end
 local MIN_EDGE_LENGTH = 10
 local DISABLE_TERRAIN_GENERATOR = false
 local TIME_MAP_GEN = false
-local DRAW_EDGES = false
-local PRINT_TIERS = false
+local DRAW_EDGES = true
+local PRINT_TIERS = true
 local DO_SMOOTHING = true
-local RELOAD_REGEN = false
+local RELOAD_REGEN = true
 local SHOW_WAVEMAP = false
 
 --------------------------------------------------------------------------------
@@ -1408,7 +1408,13 @@ local function GetFloodfillHandler(defaultValue)
 			
 			fillX[#fillX + 1] = x
 			fillZ[#fillZ + 1] = z
-			--Spring.MarkerAddPoint(x, 0, z, val)
+			--if x < 2100 and z < 4000 then
+			--	if val == -1 then
+			--		Spring.MarkerAddPoint(x, 0, z, "")
+			--	else
+			--		Spring.MarkerAddPoint(x, 0, z, val)
+			--	end
+			--end
 		end
 	end
 	
@@ -1619,7 +1625,7 @@ local function ApplyLineDistanceFunc(
 				tangDist = -tangDist
 			end
 			
-			if tierFlood and (projDist > -12 and projDist < lineLength + 12 and tangDist > -20 and tangDist < 40) then
+			if tierFlood and (projDist > -12 and projDist < lineLength + 12 and tangDist > -40 and tangDist < 40) then
 				tangDistAbs = abs(tangDist)
 				if projDist < 0 then
 					tangDistAbs = tangDistAbs - projDist*3
@@ -3000,7 +3006,7 @@ local newParams = {
 local function MakeMap()
 	local params = newParams
 	local randomSeed = GetSeed()
-	randomSeed = 755160 -- Bugged floodfill
+	--randomSeed = 755160
 	math.randomseed(randomSeed)
 
 	Spring.SetGameRulesParam("typemap", "temperate2")
