@@ -1421,8 +1421,8 @@ local function GetFloodfillHandler(defaultValue)
 	function externalFuncs.RunFloodfillAndGetValues(cells)
 		-- Add cells last so they are on top of the stack, and are flooded from.
 		for i = 1, #cells do
-			local x, z = cells[i].averageMid[1], cells[i].averageMid[2]
-			x, z = floor((x + 4)/8) * 8, floor((z + 4)/8) * 8
+			local point = GetMidpoint(cells[i].averageMid, cells[i].site)
+			local x, z = floor((point[1] + 4)/8) * 8, floor((point[2] + 4)/8) * 8
 			externalFuncs.AddHeight(x, z, cells[i].tier, 0)
 		end
 		
@@ -3028,7 +3028,7 @@ local newParams = {
 local function MakeMap()
 	local params = newParams
 	local randomSeed = GetSeed()
-	--randomSeed = 3747085
+	--randomSeed = 3747085 -- Floodfill bug.
 	math.randomseed(randomSeed)
 
 	Spring.SetGameRulesParam("typemap", "temperate2")
