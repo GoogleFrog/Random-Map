@@ -24,7 +24,7 @@ local TIME_MAP_GEN = false
 local DRAW_EDGES = true
 local PRINT_TIERS = true
 local DO_SMOOTHING = true
-local RELOAD_REGEN = true
+local RELOAD_REGEN = false
 local SHOW_WAVEMAP = false
 
 --------------------------------------------------------------------------------
@@ -2712,7 +2712,7 @@ local function AllocateMetalSpots(cells, edges, minLandTier, startCell, params)
 		end
 		
 		totalMexAlloc = ReduceMexAllocation(mexCell, totalMexAlloc, 0)
-		local neighbourFactor = 0.45
+		local neighbourFactor = 0.3 + 0.3*mexAssignment
 		for i = 1, #mexCell.neighbours do
 			totalMexAlloc = ReduceMexAllocation(mexCell.neighbours[i], totalMexAlloc, neighbourFactor)
 		end
@@ -2814,7 +2814,7 @@ end
 
 local TREE_DENSITY_SIZE = 512
 
-local function SetTreeDensity(cells)
+local function SetTreeDensity(params, cells)
 	for i = 1, #cells do
 		local thisCell = cells[i]
 		if thisCell.firstMirror then
@@ -2829,6 +2829,7 @@ local function SetTreeDensity(cells)
 			else
 				thisCell.treeDensity = 0.05 + 0.3*random()
 			end
+			thisCell.treeDensity = thisCell.treeDensity*params.treeMult
 			if thisCell.mirror then
 				thisCell.mirror.treeDensity = thisCell.treeDensity
 			end
@@ -2905,7 +2906,7 @@ local function GetTerrainStructure(params)
 	
 	tierMin, tierMax = GenerateEdgePassability(params, edgesSorted, waveFunc, waveHeightMult, tierMin, tierMax, tierFunc, minLandTier)
 	AllocateMetalSpots(cells, edges, minLandTier, startCell, params)
-	SetTreeDensity(cells)
+	SetTreeDensity(params, cells)
 	
 	EchoProgress("Terrain structure complete")
 
@@ -3001,6 +3002,7 @@ local newParams = {
 		{1500, 550},
 		{550, 1500},
 	},
+	treeMult = 0.15,
 }
 
 local function MakeMap()

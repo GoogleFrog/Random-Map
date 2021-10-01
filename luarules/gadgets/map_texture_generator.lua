@@ -102,8 +102,7 @@ local function DrawTextureOnSquare(x, z, size, sx, sz, xsize, zsize)
 end
 
 local function LowerHalfRotateSymmetry()
-	glTexRect(-1, -1, 1, 0, 0, 0, 1, 0.5)
-	glTexRect(1, 1, -1, 0, 0, 0, 1, 0.5)
+	glTexRect(-1, -1, 1, 1, 0, 0, 1, 1)
 end
 
 --------------------------------------------------------------------------------
@@ -128,10 +127,7 @@ local function SetMapTexture(texturePool, mapTexX, mapTexZ, topTexX, topTexZ, to
 	local usedgrass
 	local usedminimap
 
-	local minHeight =  Spring.GetGameRulesParam("ground_min_override")
-	local maxHeight = Spring.GetGameRulesParam("ground_max_override")
-
-	local topFullTex = gl.CreateTexture(MAP_X, MAP_Z,
+	local fulltex = gl.CreateTexture(MAP_X, MAP_Z,
 		{
 			border = false,
 			min_filter = GL.LINEAR,
@@ -141,9 +137,6 @@ local function SetMapTexture(texturePool, mapTexX, mapTexZ, topTexX, topTexZ, to
 			fbo = true,
 		}
 	)
-	if not topFullTex then
-		return
-	end
 	
 	Spring.Echo("Generated blank fulltex")
 	local topSplattex = USE_SHADING_TEXTURE and gl.CreateTexture(MAP_X, MAP_Z,
@@ -182,6 +175,9 @@ local function SetMapTexture(texturePool, mapTexX, mapTexZ, topTexX, topTexZ, to
 			tex6 = 6,
 			tex7 = 7,
 			tex8 = 8,
+			tex9 = 9,
+			tex10 = 10,
+			tex11 = 11,
 		},
 	});
 
@@ -200,7 +196,6 @@ local function SetMapTexture(texturePool, mapTexX, mapTexZ, topTexX, topTexZ, to
 	local minHeightPos  = glGetUniformLocation(diffuseShader, 'minHeight')
 	local maxHeightPos  = glGetUniformLocation(diffuseShader, 'maxHeight')
 
-	
 	local function DrawLoop()
 		local loopCount = 0
 		glColor(1, 1, 1, 1)
@@ -208,10 +203,10 @@ local function SetMapTexture(texturePool, mapTexX, mapTexZ, topTexX, topTexZ, to
 		
 		Spring.Echo("Begin shader draw")
 
-		glRenderToTexture(topFullTex, function ()
+		glRenderToTexture(fulltex, function ()
 			glUseShader(diffuseShader)
-			glUniform(minHeightPos, minHeight)
-			glUniform(maxHeightPos, maxHeight)
+			glUniform(minHeightPos, 0)
+			glUniform(maxHeightPos, 0)
 			glTexture(0, "$heightmap")
 			glTexture(0, false)
 			glTexture(1,"$normals")
@@ -230,7 +225,13 @@ local function SetMapTexture(texturePool, mapTexX, mapTexZ, topTexX, topTexZ, to
 			glTexture(7, false)
 			glTexture(8,":l:unittextures/tacticalview/terran/diffuse/ramps.png");
 			glTexture(8, false)
-			gl.TexRect(-1,-1,1,0,false,true)
+			glTexture(9,":l:unittextures/tacticalview/terran/diffuse/cloudgrass.png");
+			glTexture(9, false)
+			glTexture(10,":l:unittextures/tacticalview/terran/diffuse/cloudgrassdark.png");
+			glTexture(10, false)
+			glTexture(11,":l:unittextures/tacticalview/terran/diffuse/sand.png");
+			glTexture(11, false)
+			gl.TexRect(-1,-1,1,1,false,true)
 			glUseShader(0)
 		end)
 
@@ -244,6 +245,9 @@ local function SetMapTexture(texturePool, mapTexX, mapTexZ, topTexX, topTexZ, to
 		glDeleteTexture(":l:unittextures/tacticalview/terran/diffuse/highlands.png");
 		glDeleteTexture(":l:unittextures/tacticalview/terran/diffuse/slopes.png");
 		glDeleteTexture(":l:unittextures/tacticalview/terran/diffuse/ramps.png");
+		glDeleteTexture(":l:unittextures/tacticalview/terran/diffuse/cloudgrass.png");
+		glDeleteTexture(":l:unittextures/tacticalview/terran/diffuse/cloudgrassdark.png");
+		glDeleteTexture(":l:unittextures/tacticalview/terran/diffuse/sand.png");
 		glDeleteShader(diffuseShader);
 		glTexture(false)
 		
@@ -260,16 +264,6 @@ local function SetMapTexture(texturePool, mapTexX, mapTexZ, topTexX, topTexZ, to
 
 
 		Spring.Echo("Starting to render SquareTextures")
-		local fulltex = gl.CreateTexture(MAP_X, MAP_Z,
-			{
-				border = false,
-				min_filter = GL.LINEAR,
-				mag_filter = GL.LINEAR,
-				wrap_s = GL.CLAMP_TO_EDGE,
-				wrap_t = GL.CLAMP_TO_EDGE,
-				fbo = true,
-			}
-		)
 		local splattex = USE_SHADING_TEXTURE and gl.CreateTexture(MAP_X, MAP_Z,
 			{
 				format = GL_RGBA32F,
@@ -283,13 +277,6 @@ local function SetMapTexture(texturePool, mapTexX, mapTexZ, topTexX, topTexZ, to
 		)
 		
 		gl.Blending(false)
-		glTexture(topFullTex)
-		glRenderToTexture(fulltex , LowerHalfRotateSymmetry)
-		
-		if topSplattex then
-			glTexture(topSplattex)
-			glRenderToTexture(splattex , LowerHalfRotateSymmetry)
-		end
 
 		local texOut = fulltex
 		
@@ -362,7 +349,7 @@ local function SetMapTexture(texturePool, mapTexX, mapTexZ, topTexX, topTexZ, to
 			texOut = nil
 		end
 		
-		if false then
+		if splattex then
 			texOut = splattex
 			Spring.SetMapShadingTexture("$ssmf_splat_distr", texOut)
 			usedsplat = texOut
