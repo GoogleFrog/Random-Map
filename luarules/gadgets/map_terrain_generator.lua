@@ -24,7 +24,7 @@ local TIME_MAP_GEN = false
 local DRAW_EDGES = true
 local PRINT_TIERS = true
 local DO_SMOOTHING = true
-local RELOAD_REGEN = false
+local RELOAD_REGEN = true
 local SHOW_WAVEMAP = false
 
 --------------------------------------------------------------------------------
@@ -463,7 +463,7 @@ local function GetRandomMapCoord(avoidDist, avoidPoints, maxAttempts, useOtherSi
 	end
 	
 	local attempts = 1
-	while (select(2, GetClosestPoint(point, avoidPoints, useOtherSize)) or 0) < avoidDist do
+	while (select(2, GetClosestPoint(point, avoidPoints, useOtherSize)) or avoidDist) < avoidDist do
 		point = GetRandomCoordWithEdgeBias(edgeBias)
 		attempts = attempts + 1
 		if attempts > maxAttempts then
@@ -1408,7 +1408,7 @@ local function GetFloodfillHandler(defaultValue)
 			
 			fillX[#fillX + 1] = x
 			fillZ[#fillZ + 1] = z
-			--if x < 2100 and z < 4000 then
+			--if x < 3950 and z < 1800 and x > 2700 and z > 860 then
 			--	if val == -1 then
 			--		Spring.MarkerAddPoint(x, 0, z, "")
 			--	else
@@ -1418,7 +1418,15 @@ local function GetFloodfillHandler(defaultValue)
 		end
 	end
 	
-	function externalFuncs.RunFloodfillAndGetValues()
+	function externalFuncs.RunFloodfillAndGetValues(cells)
+		-- Add cells last so they are on top of the stack, and are flooded from.
+		for i = 1, #cells do
+			local x, z = cells[i].averageMid[1], cells[i].averageMid[2]
+			x, z = floor((x + 4)/8) * 8, floor((z + 4)/8) * 8
+			externalFuncs.AddHeight(x, z, cells[i].tier, 0)
+		end
+		
+		-- Ensure the table has all values.
 		if #fillX == 0 then
 			for x = 0, MAP_X, SQUARE_SIZE do
 				values[x] = {}
@@ -1427,6 +1435,8 @@ local function GetFloodfillHandler(defaultValue)
 				end
 			end
 		end
+		
+		-- Loop until flood is complete.
 		while #fillX > 0 do
 			local x, z = fillX[#fillX], fillZ[#fillZ]
 			fillX[#fillX], fillZ[#fillZ] = nil, nil
@@ -1625,7 +1635,7 @@ local function ApplyLineDistanceFunc(
 				tangDist = -tangDist
 			end
 			
-			if tierFlood and (projDist > -12 and projDist < lineLength + 12 and tangDist > -40 and tangDist < 40) then
+			if tierFlood and (projDist > -12 and projDist < lineLength + 12 and tangDist > -30 and tangDist < 30) then
 				tangDistAbs = abs(tangDist)
 				if projDist < 0 then
 					tangDistAbs = tangDistAbs - projDist*3
@@ -2623,7 +2633,7 @@ local function AllocateMetalSpots(cells, edges, minLandTier, startCell, params)
 		local pos = GetRandomPointInCircle({MAP_X/2, MAP_Z/2}, params.forcedMinMexRadius)
 		local closeCell = GetClosestCell(pos, cells)
 		closeCell.metalSpots = (closeCell.metalSpots or 0) + 1
-		closeCell.mexSize = ((random() > 0.6 and params.mexLoneSize) or params.mexPairSize)
+		closeCell.mexSize = params.mexLoneSize
 		closeCell.mirror.metalSpots = closeCell.metalSpots
 		closeCell.mirror.mexSize = closeCell.mexSize
 		wantedMexes = wantedMexes - 1
@@ -2719,6 +2729,7 @@ local function AllocateMetalSpots(cells, edges, minLandTier, startCell, params)
 		mexCell.metalSpots = (mexCell.metalSpots or 0) + mexAssignment
 		if mexAssignment == 2 then
 			mexCell.mexSize = params.mexPairSize
+			mexCell.mexFallbackSize = params.mexPairGapRequirement
 		elseif (mexCell.mirror and distBetweenMirror > 2000) then
 			mexCell.mexSize = ((random() > 0.1 and params.mexLoneSize) or params.mexPairSize) -- Whether to allow grouped mexes.
 		else
@@ -2748,7 +2759,6 @@ local function GetRandomMexPos(mexes, smoothHeights, newMexSize, pos, useOtherSi
 		placeRadius = placeRadius + placeIncrement
 		tries = tries + 1
 	end
-	
 	return false
 end
 
@@ -2757,8 +2767,10 @@ local function AddToMexPosList(params, mexes, pos, size, mexValue)
 	if closeDist and closeDist < params.doubleMexDetectGap then
 		size = max(params.doubleMexSize, size)
 		mexes[closeID].size = size
+		--PointEcho(mexes[closeID], "S: " .. size .. ", " .. (#mexes + 1) .. "_________")
 	end
 	pos.size = size
+	--PointEcho(pos, "S: " .. (#mexes + 1) .. " _________________ " .. size .. ", " .. (closeID or "NIL") .. ", " .. (closeDist or "NIL"))
 	mexes[#mexes + 1] = pos
 	GG.mapgen_mexList = GG.mapgen_mexList or {}
 	GG.mapgen_mexList[#GG.mapgen_mexList + 1] = {x = pos[1], z = pos[2], metal = mexValue}
@@ -2792,8 +2804,15 @@ local function PlaceMetalSpots(cells, smoothHeights, params)
 		local thisCell = cells[i]
 		if thisCell.firstMirror then
 			if thisCell.megaMex then
-				PlaceMex(params, mexes, smoothHeights, thisCell.mexSize, thisCellthisCell.mexMidpoint or thisCell.averageMid, thisCell.isMainStartPos)
+				PlaceMex(params, mexes, smoothHeights, thisCell.mexSize, thisCell.mexMidpoint or thisCell.averageMid, thisCell.isMainStartPos)
 			elseif thisCell.metalSpots then
+				if thisCell.metalSpots > 1 and thisCell.mexFallbackSize then
+					local closeID, closeDist = GetClosestPoint(thisCell.mexMidpoint or thisCell.averageMid, mexes, true)
+					if closeDist < thisCell.mexFallbackSize then
+						thisCell.mexSize = thisCell.mexFallbackSize
+						thisCell.metalSpots = 1
+					end
+				end
 				for j = 1, thisCell.metalSpots do
 					PlaceMex(params, mexes, smoothHeights, thisCell.mexSize, thisCell.mexMidpoint or thisCell.averageMid, thisCell.isMainStartPos)
 				end
@@ -2804,7 +2823,7 @@ local function PlaceMetalSpots(cells, smoothHeights, params)
 	-- Add mexes to very empty areas of the map.
 	for i = 1, params.emptyAreaMexes do
 		local point = GetRandomMapCoord(params.emptyAreaMexRadius, mexes, 120, false, 1.1)
-		PlaceMex(params, mexes, smoothHeights, params.emptyAreaMexRadius*0.5 - 150, point)
+		PlaceMex(params, mexes, smoothHeights, params.emptyAreaMexRadius*0.5 - 80, point)
 	end
 end
 
@@ -2920,7 +2939,7 @@ local function MakeHeightmap(cells, edges, heightMod, waveFunc, waveHeightMult, 
 	EchoProgress("Edge processing complete")
 	EchoProgress("ApplyLineDistanceFunc")
 	
-	local tiers = tierFlood.RunFloodfillAndGetValues()
+	local tiers = tierFlood.RunFloodfillAndGetValues(cells)
 	EchoProgress("Tier propagation complete")
 
 	local heights = ApplyHeightModifiers(tierConst, tierHeight, tierMin, tierMax, tiers, heightMod, waveMod, waveFunc, waveHeightMult)
@@ -2990,25 +3009,26 @@ local newParams = {
 	baseMexesPerSide = 11,
 	forcedMidMexes = 1,
 	forcedMinMexRadius = 1000,
-	emptyAreaMexes = 2,
-	emptyAreaMexRadius = 1100,
-	mexLoneSize = 300,
+	emptyAreaMexes = 3,
+	emptyAreaMexRadius = 1000,
+	mexLoneSize = 310,
 	mexPairSize = 90,
-	startMexGap = 330, -- Gap is not size, but distance between mexes
-	doubleMexDetectGap = 500,
+	startMexGap = 300, -- Gap is not size, but distance between mexes
+	doubleMexDetectGap = 680,
+	mexPairGapRequirement = 680,
 	midMexDetectGap = 220,
-	doubleMexSize = 320,
+	doubleMexSize = 420,
 	predefinedMexes = {
-		{1500, 550},
-		{550, 1500},
+		{1900, 550},
+		{550, 1900},
 	},
-	treeMult = 0.15,
+	treeMult = 0.001,
 }
 
 local function MakeMap()
 	local params = newParams
 	local randomSeed = GetSeed()
-	--randomSeed = 755160
+	--randomSeed = 1511251
 	math.randomseed(randomSeed)
 
 	Spring.SetGameRulesParam("typemap", "temperate2")

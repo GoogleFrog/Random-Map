@@ -85,9 +85,9 @@ local mapinfo = {
 		sunDir        = {0.35, 1.0, 0.3, 1e9},
 
 		--// unit & ground lighting
-		["groundDiffuseColor"]= {0.30952382, 0.3904762, 0.38095239, 1},
-		["groundAmbientColor"]= {0.38571429, 0.41428572, 0.33809525, 1},
-		["groundSpecularColor"]= {0.10476191, 0.04285714, 0.07142857, 1},
+		["groundDiffuseColor"]= {0.35, 0.42, 0.41, 1},
+		["groundAmbientColor"]= {0.42, 0.45, 0.365, 1},
+		["groundSpecularColor"]= {0.1, 0.1, 0.1, 1},
 		groundShadowDensity = 0.4,
 		unitAmbientColor    = {0.55, 0.55, 0.45},
 		unitDiffuseColor    = {0.85, 0.85, 0.85},

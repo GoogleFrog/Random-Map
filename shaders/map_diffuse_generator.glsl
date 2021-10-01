@@ -22,11 +22,12 @@ const float vehCliff = 0.4546;
 const float botCliff = 0.8065;
 
 const float softCliffMax = hardCliffMin;
-const float bandingMin = 0.16;
+const float bandingMin = 0.14;
 const float vehCliffMinus = 0.24;
 const float vehCliffEpsilon = 0.492;
 const float vehCliffPlus = 0.62;
-const float botCliffMinus = botCliff - 0.02;
+const float botCliffMinus = botCliff - 0.06;
+const float botCliffMinusMinus = 0.65;
 
 
 vec2 rotate(vec2 v, float a) {
@@ -54,12 +55,12 @@ void main()
     // ---- altitude textures ----
 
     // admix depths (actually same as beaches atm)
-    factor = smoothstep(-5.0,-17.0,height);
-    gl_FragColor = mix(gl_FragColor,texture2D(tex3,coord*1.0),factor);
+    //factor = smoothstep(-5.0,-17.0,height);
+    //gl_FragColor = mix(gl_FragColor,texture2D(tex4,coord*1.0),factor);
 
     // admix beaches
-    //factor = clamp(0.1*(10.0-abs(height)),0.0,1.0);
-    //gl_FragColor = mix(gl_FragColor,texture2D(tex2,coord*8.0),factor);
+    factor = clamp(0.1*(10.0-abs(height)),0.0,1.0);
+    gl_FragColor = mix(gl_FragColor,texture2D(tex4,coord*8.0),factor);
 
     // admix cracks
     factor = smoothstep(70.0,95.0,height) * (1.0-slope);
@@ -67,14 +68,14 @@ void main()
 
     // admix low grass
     factor = smoothstep(115.0,135.0,height) * (1.0-slope);
-    gl_FragColor = mix(gl_FragColor,texture2D(tex10,coord*min(1.05, 1.0 + 1.0*slope)),factor);
+    gl_FragColor = mix(gl_FragColor,texture2D(tex10,coord*min(1.05, 1.0 + 0.02*slope)),factor);
 	
     // admix high grass
-    factor = smoothstep(170.0,190.0,height);
-    gl_FragColor = mix(gl_FragColor,texture2D(tex9,coord*min(1.05, 0.8 + 0.2*slope)),factor);
+    factor = smoothstep(170.0,190.0,height) * (1.0-slope);
+    gl_FragColor = mix(gl_FragColor,texture2D(tex9,coord*min(1.05, 0.8 + 0.02*slope)),factor);
 
     // admix highlands
-    factor = smoothstep(255.0,290.0,height);
+    factor = smoothstep(255.0,290.0,height) * (1.0-slope);
     gl_FragColor = mix(gl_FragColor,texture2D(tex6,coord*min(0.82, 0.8 + 0.001*slope)),factor);
 
     // ---- slope textures ----
@@ -95,22 +96,26 @@ void main()
 	}
 	else if (slope < botCliff) {
 		gl_FragColor = mix(gl_FragColor,texture2D(tex2,coord*3.0), 0.7);
-		gl_FragColor = mix(gl_FragColor,texture2D(tex8,coord*2.0), 1.0 + 0.2*smoothstep(vehCliffEpsilon, botCliff, slope));
+		gl_FragColor = mix(gl_FragColor,texture2D(tex8,coord*2.0), 0.8 + 0.2*smoothstep(vehCliffEpsilon, botCliff, slope));
 		if (slope > botCliffMinus) {
 			factor = smoothstep(botCliffMinus, botCliff, slope);
-			gl_FragColor = mix(gl_FragColor,texture2D(tex3,0.9*coord),factor);
-			gl_FragColor = mix(gl_FragColor,texture2D(tex7,0.7*coord*slope*0.1),factor*0.2);
+			gl_FragColor = mix(gl_FragColor,texture2D(tex3,5.0*coord),factor);
+		}
+		if (slope > botCliffMinusMinus) {
+			factor = smoothstep(botCliffMinusMinus, botCliff, slope)*0.3;
+			gl_FragColor = mix(gl_FragColor,texture2D(tex7,2.0*coord*(1.0 + slope*0.01)),factor);
 		}
 	}
 	else {
 		// admix cliffsides
-		gl_FragColor = mix(gl_FragColor,texture2D(tex3,0.9*coord),1.0);
-		gl_FragColor = mix(gl_FragColor,texture2D(tex7,0.7*coord*slope*0.1),0.2);
+		factor = (1.0 - smoothstep(botCliff, 1.0, slope))*0.3;
+		gl_FragColor = mix(gl_FragColor,texture2D(tex3,5.0*coord),1.0);
+		gl_FragColor = mix(gl_FragColor,texture2D(tex7,2.0*coord*(1.0 + slope*0.01)),factor);
 	}
 	
 	// Show mountains over cliffs
 	if (height > 255.0) {
-		factor = smoothstep(255.0,290.0,height)*(1.0 - slope)*0.7 + 0.3;
+		factor = smoothstep(255.0,290.0,height)*(1.0 - slope*0.95 + 0.05);
 		gl_FragColor = mix(gl_FragColor,texture2D(tex6,coord*min(0.82, 0.8 + 0.001*slope)),factor);
 	}
 }
