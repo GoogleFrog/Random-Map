@@ -137,6 +137,18 @@ local function SetMapTexture(texturePool, mapTexX, mapTexZ, topTexX, topTexZ, to
 			fbo = true,
 		}
 	)
+
+	-- specular probably doesn't need to be entirely full reso tbf
+	local spectex = gl.CreateTexture(MAP_X/4, MAP_Z/4,
+		{
+			border = false,
+			min_filter = GL.LINEAR,
+			mag_filter = GL.LINEAR,
+			wrap_s = GL.CLAMP_TO_EDGE,
+			wrap_t = GL.CLAMP_TO_EDGE,
+			fbo = true,
+		}
+	)
 	
 	Spring.Echo("Generated blank fulltex")
 	local topSplattex = USE_SHADING_TEXTURE and gl.CreateTexture(MAP_X, MAP_Z,
@@ -193,9 +205,6 @@ local function SetMapTexture(texturePool, mapTexX, mapTexZ, topTexX, topTexZ, to
 		return
 	end
 
-	local minHeightPos  = glGetUniformLocation(diffuseShader, 'minHeight')
-	local maxHeightPos  = glGetUniformLocation(diffuseShader, 'maxHeight')
-
 	local function DrawLoop()
 		local loopCount = 0
 		glColor(1, 1, 1, 1)
@@ -205,8 +214,6 @@ local function SetMapTexture(texturePool, mapTexX, mapTexZ, topTexX, topTexZ, to
 
 		glRenderToTexture(fulltex, function ()
 			glUseShader(diffuseShader)
-			glUniform(minHeightPos, 0)
-			glUniform(maxHeightPos, 0)
 			glTexture(0, "$heightmap")
 			glTexture(0, false)
 			glTexture(1,"$normals")
@@ -248,13 +255,13 @@ local function SetMapTexture(texturePool, mapTexX, mapTexZ, topTexX, topTexZ, to
 		glDeleteTexture(":l:unittextures/tacticalview/terran/diffuse/cloudgrass.png");
 		glDeleteTexture(":l:unittextures/tacticalview/terran/diffuse/cloudgrassdark.png");
 		glDeleteTexture(":l:unittextures/tacticalview/terran/diffuse/sand.png");
-		glDeleteShader(diffuseShader);
 		glTexture(false)
-		
+
 		local cur = Spring.GetTimer()
 		Spring.Echo("FullTex rendered in: "..(Spring.DiffTimers(cur, ago, true)))
 		local ago2 = Spring.GetTimer()
 		gl.Blending(GL.ONE, GL.ZERO)
+
 
 		Sleep()
 		Spring.ClearWatchDogTimer()
@@ -262,6 +269,53 @@ local function SetMapTexture(texturePool, mapTexX, mapTexZ, topTexX, topTexZ, to
 		Spring.Echo("Splattex rendered in: "..(Spring.DiffTimers(cur, ago2, true)))
 		glColor(1, 1, 1, 1)
 
+
+		local agoSpec = Spring.GetTimer();
+		Spring.Echo("Starting to render specular")
+		glRenderToTexture(spectex, function ()
+			glUseShader(diffuseShader)
+			glTexture(0, "$heightmap")
+			glTexture(0, false)
+			glTexture(1,"$normals")
+			glTexture(1, false)
+			glTexture(2,":l:unittextures/tacticalview/terran/specular/flats.png");
+			glTexture(2, false)
+			glTexture(3,":l:unittextures/tacticalview/terran/specular/cliffs.png");
+			glTexture(3, false)
+			glTexture(4,":l:unittextures/tacticalview/terran/specular/beach.jpg");
+			glTexture(4, false)
+			glTexture(5,":l:unittextures/tacticalview/terran/specular/midlands.png");
+			glTexture(5, false)
+			glTexture(6,":l:unittextures/tacticalview/terran/specular/highlands.png");
+			glTexture(6, false)
+			glTexture(7,":l:unittextures/tacticalview/terran/specular/slopes.png");
+			glTexture(7, false)
+			glTexture(8,":l:unittextures/tacticalview/terran/specular/ramps.png");
+			glTexture(8, false)
+			glTexture(9,":l:unittextures/tacticalview/terran/specular/cloudgrass.png");
+			glTexture(9, false)
+			glTexture(10,":l:unittextures/tacticalview/terran/specular/cloudgrassdark.png");
+			glTexture(10, false)
+			glTexture(11,":l:unittextures/tacticalview/terran/specular/sand.png");
+			glTexture(11, false)
+			gl.TexRect(-1,-1,1,1,false,true)
+			glUseShader(0)
+		end)
+		glDeleteTexture(":l:unittextures/tacticalview/terran/specular/flats.png");
+		glDeleteTexture(":l:unittextures/tacticalview/terran/specular/cliffs.png");
+		glDeleteTexture(":l:unittextures/tacticalview/terran/specular/beach.jpg");
+		glDeleteTexture(":l:unittextures/tacticalview/terran/specular/midlands.png");
+		glDeleteTexture(":l:unittextures/tacticalview/terran/specular/highlands.png");
+		glDeleteTexture(":l:unittextures/tacticalview/terran/specular/slopes.png");
+		glDeleteTexture(":l:unittextures/tacticalview/terran/specular/ramps.png");
+		glDeleteTexture(":l:unittextures/tacticalview/terran/specular/cloudgrass.png");
+		glDeleteTexture(":l:unittextures/tacticalview/terran/specular/cloudgrassdark.png");
+		glDeleteTexture(":l:unittextures/tacticalview/terran/specular/sand.png");
+		glTexture(false)
+		glDeleteShader(diffuseShader);
+
+		cur = Spring.GetTimer()
+		Spring.Echo("Specular rendered in "..(Spring.DiffTimers(cur, ago, true)))
 
 		Spring.Echo("Starting to render SquareTextures")
 		local splattex = USE_SHADING_TEXTURE and gl.CreateTexture(MAP_X, MAP_Z,
@@ -337,7 +391,11 @@ local function SetMapTexture(texturePool, mapTexX, mapTexZ, topTexX, topTexZ, to
 		cur = Spring.GetTimer()
 		Spring.Echo("All squaretex rendered and applied in: "..(Spring.DiffTimers(cur, ago3, true)))
 
+		Spring.SetMapShadingTexture("$ssmf_specular", spectex)
+		Spring.Echo("specular applied")
+	
 		Spring.SetMapShadingTexture("$grass", texOut)
+
 		usedgrass = texOut
 		Spring.SetMapShadingTexture("$minimap", texOut)
 		usedminimap = texOut
