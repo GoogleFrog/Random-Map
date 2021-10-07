@@ -10,7 +10,7 @@ function gadget:GetInfo()
    }
 end
 
-local MAX_NORMAL = 0.965
+local MAX_NORMAL = 0.8
 local VEH_NORMAL = 0.892
 local BOT_NORMAL = 0.585
 
@@ -18,15 +18,20 @@ if not (gadgetHandler:IsSyncedCode()) then  --Sync
 	return
 end
 
-local minTreeHeight = 10
-local maxTreeHeight = 600
-local minDistance = 50
+local MAP_X = Game.mapSizeX
+local MAP_Z = Game.mapSizeZ
+
+local minTreeHeight = 85
+local maxTreeHeight = 260
+local minDistance = 64
 local density = 0.8
 
 local floor = math.floor
 local ceil = math.ceil
 
-local getHeightDensity = function(y, invdensity) 
+local DENSITY_SAMPLE_RADIUS = 550
+
+local getHeightDensity = function(y, invdensity)
 	local dy = (y - 10)/(900 - 10)
 	local mod = -(math.min(1, dy+1))
 	return (1 - mod) * invdensity
@@ -38,8 +43,12 @@ local function GetCellTreeDensity(x, z)
 	if not densityMap then
 		return 1
 	end
-	local mx = floor(x/densitySize)*densitySize + densitySize/2
-	local mz = floor(z/densitySize)*densitySize + densitySize/2
+	local dist = DENSITY_SAMPLE_RADIUS*(math.random()^2)
+	local angle = math.random()*2*math.pi
+	x = math.max(0, math.min(MAP_X, x + dist*math.cos(angle)))
+	z = math.max(0, math.min(MAP_Z, z + dist*math.sin(angle)))
+	local mx = floor(x/densitySize)*densitySize
+	local mz = floor(z/densitySize)*densitySize
 	return (densityMap[mx] and densityMap[mx][mz]) or 1
 end
 
@@ -48,13 +57,9 @@ local function GetTreeSlopeChance(x, z)
 	local height      = Spring.GetGroundHeight(x, z)
 	if (normal > MAX_NORMAL) then
 		return 1
-	elseif (normal < VEH_NORMAL) then
-		return 0
 	end
-	--local slopeProp = 0.1*(normal - VEH_NORMAL)/( MAX_NORMAL - VEH_NORMAL)
 	return 0
 end
-
 
 function gadget:Initialize()
 	-- get all replacement trees
@@ -110,16 +115,15 @@ function gadget:Initialize()
 	
 	-- Get Random positions
 	local invDensity = 1/density
-	for x = 0, Game.mapSizeX, minDistance do
-		for z = 0, Game.mapSizeZ, minDistance do
-			local px = x + math.random()*minDistance - minDistance/2
-			local pz = z + math.random()*minDistance - minDistance/2
+	for x = 0, Game.mapSizeX - 1, minDistance do
+		for z = 0, Game.mapSizeZ - 1, minDistance do
+			local px = x + math.random()*minDistance
+			local pz = z + math.random()*minDistance
 			local py = Spring.GetGroundHeight(px, pz)
 			if py > minTreeHeight and py < maxTreeHeight and
-					math.random(1, getHeightDensity(py, invDensity)) == 1 and
+					math.random() < getHeightDensity(py, invDensity) and
 					math.random() < GetTreeSlopeChance(px, pz) and
 					math.random() < GetCellTreeDensity(x, z) then
-				
 				local rx, rz = floor(px/16), floor(pz/16)
 				if not (avoidMex[rx] and avoidMex[rx][rz]) then
 					Spring.CreateFeature(replacementTrees[math.random(1, typeCount)], px, py, pz, math.random(0, 360)*math.pi*2/360)

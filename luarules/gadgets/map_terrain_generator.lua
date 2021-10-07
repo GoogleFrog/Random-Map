@@ -22,7 +22,8 @@ local MIN_EDGE_LENGTH = 10
 local DISABLE_TERRAIN_GENERATOR = false
 local TIME_MAP_GEN = false
 local DRAW_EDGES = true
-local PRINT_TIERS = true
+local PRINT_TIERS = false
+local PRINT_MEX_ALLOC = true
 local DO_SMOOTHING = true
 local RELOAD_REGEN = true
 local SHOW_WAVEMAP = false
@@ -331,6 +332,12 @@ end
 --------------------------------------------------------------------------------
 --------------------------------------------------------------------------------
 -- Point manipulation
+
+local function IsPointOnDiagonal(point, diagonalWidth)
+	local xFactor = point[1]/MAP_X
+	local zFactor = point[2]/MAP_Z
+	return (abs(xFactor - zFactor) < diagonalWidth) or (abs(xFactor + zFactor - 1) < diagonalWidth)
+end
 
 local function PutPointInMap(point, edgeBuffer)
 	point = {point[1], point[2]}
@@ -2397,7 +2404,7 @@ local function ApplyHeightModifiers(tierConst, tierHeight, tierMin, tierMax, tie
 			if waveFunc then
 				local upmod = (waveMod and waveMod.up[posIndex]) or 0
 				local downmod = (waveMod and waveMod.down[posIndex]) or 0
-				waveHeight = waveFunc(x, z)*(waveMult + upmod + downmod)
+				waveHeight = waveFunc(x, z)*(waveMult + upmod + downmod) + 6*sin(waveFunc(x, z)*0.02)
 			end
 			
 			heights[x][z] = baseHeight + waveHeight + tierHeight*change
@@ -2552,10 +2559,10 @@ local function GetPathDistances(cells, startCell, distName, needVeh, needBot, ne
 end
 
 local function GetStraightDistances(cells, startCell, distName)
-	local startSite = startCell.site
+	local startSite = startCell.averageMid
 	for i = 1, #cells do
 		local thisCell = cells[i]
-		thisCell[distName] = Dist(thisCell.site, startSite)
+		thisCell[distName] = Dist(thisCell.averageMid, startSite)
 	end
 end
 
@@ -2587,6 +2594,8 @@ local function AllocateMetalSpots(cells, edges, minLandTier, startCell, params)
 	for i = 1, #cells do
 		local thisCell = cells[i]
 		local mirror = thisCell.mirror
+		thisCell.isOnDiagonal = IsPointOnDiagonal(thisCell.averageMid, 0.15)
+		
 		if mirror then
 			if thisCell.landBotDist and mirror.landBotDist then
 				local pathDiff = abs(thisCell.landBotDist - mirror.landBotDist)
@@ -2659,6 +2668,7 @@ local function AllocateMetalSpots(cells, edges, minLandTier, startCell, params)
 			thisCell.startDistFactor = (thisCell.straightDist + mirror.straightDist - minDistSum)/(maxDistSum - minDistSum)
 			thisCell.closeDistFactor = min(thisCell.straightDist, mirror.straightDist)/maxCellDist
 			
+			
 			if thisCell.tier < minLandTier then
 				thisCell.mexAlloc = 0
 			elseif thisCell.isMainStartPos then
@@ -2666,20 +2676,34 @@ local function AllocateMetalSpots(cells, edges, minLandTier, startCell, params)
 				thisCell.mexSize = params.startMexGap
 				wantedMexes = wantedMexes - thisCell.metalSpots
 			else
-				thisCell.mexAlloc = thisCell.startPathFactor*0.6 + thisCell.startDistFactor*0.4 + thisCell.closeDistFactor*1.3 - 0.1
+				-- Set base allocation
+				thisCell.mexAlloc = thisCell.startPathFactor*0.4 + (thisCell.startDistFactor - 0.3)*0.6 + thisCell.closeDistFactor*0.4 + 0.2
+				-- Heavily reduce mexes along the path between bases
+				if thisCell.startDistFactor < 0.12 then
+					thisCell.mexAlloc = thisCell.mexAlloc * (thisCell.startDistFactor - 0.2)*12
+				else
+					thisCell.mexAlloc = thisCell.mexAlloc + 0.2
+				end
+				-- Add mexes to the edges near start points
+				if max(thisCell.startDistFactor, thisCell.closeDistFactor) < 0.62 and abs(thisCell.startDistFactor - thisCell.closeDistFactor) < 0.125 then
+					thisCell.mexAlloc = thisCell.mexAlloc + 0.7
+				end
+				-- Encourage mexes at a similar bot pathing distance
 				if diffDist and diffDist <= 1 then
-					thisCell.mexAlloc = thisCell.mexAlloc + 0.5
+					thisCell.mexAlloc = thisCell.mexAlloc + 0.6*(1 - abs(thisCell.startDistFactor - thisCell.closeDistFactor))
 				end
 				if minBotDist == 1 then
-					thisCell.mexAlloc = thisCell.mexAlloc + 0.2
+					thisCell.mexAlloc = thisCell.mexAlloc + 0.15
 					thisCell.adjacentToStart = true
 				end
+				-- Encourage mexes right on the edges.
 				if thisCell.adjacentToBorder then
-					thisCell.mexAlloc = thisCell.mexAlloc + 0.5
+					thisCell.mexAlloc = thisCell.mexAlloc + 0.15
 				end
 				if thisCell.adjacentToCorner then
-					thisCell.mexAlloc = thisCell.mexAlloc - 0.1
+					thisCell.mexAlloc = thisCell.mexAlloc - 0.4
 				end
+				-- Discourage spider-only mexes
 				if thisCell.unreachable then
 					thisCell.mexAlloc = thisCell.mexAlloc*0.02
 				end
@@ -2691,6 +2715,13 @@ local function AllocateMetalSpots(cells, edges, minLandTier, startCell, params)
 			if isTeamGame and thisCell.isAuxStartPos then
 				thisCell.metalSpots = ((isBigTeamGame and 2) or 1)
 				wantedMexes = wantedMexes - thisCell.metalSpots
+			end
+			if PRINT_MEX_ALLOC then
+				PointEchoMirror(cells[i].site,
+					"T: " .. thisCell.tier .. 
+					", Mid: " .. floor(100*thisCell.closeDistFactor) .. 
+					", Crow: " .. floor(100*thisCell.startDistFactor) .. 
+					", Alloc: " .. floor(1000*(thisCell.mexAlloc or 0)))
 			end
 		end
 	end
@@ -2751,7 +2782,7 @@ local function GetRandomMexPos(mexes, smoothHeights, newMexSize, pos, useOtherSi
 	local placeRadius = 120
 	local placeIncrement = 10
 	local tries = 0
-	while tries < 80 do
+	while tries < 120 do
 		local randomPoint, timeout = GetRandomPointInCircleAvoid(newMexSize, mexes, 4, pos, placeRadius, 150, false, useOtherSize)
 		if (not timeout) and SufficientlyFlat(randomPoint, smoothHeights, 52, 11, 3) then
 			return randomPoint
@@ -2822,8 +2853,9 @@ local function PlaceMetalSpots(cells, smoothHeights, params)
 	
 	-- Add mexes to very empty areas of the map.
 	for i = 1, params.emptyAreaMexes do
-		local point = GetRandomMapCoord(params.emptyAreaMexRadius, mexes, 120, false, 1.1)
-		PlaceMex(params, mexes, smoothHeights, params.emptyAreaMexRadius*0.5 - 80, point)
+		local emptyAreaMexRadius = params.emptyAreaMexRadiusMin + random()*params.emptyAreaMexRadiusRand
+		local point = GetRandomMapCoord(emptyAreaMexRadius, mexes, 120, false, 1.1)
+		PlaceMex(params, mexes, smoothHeights, emptyAreaMexRadius*0.5 - 80, point)
 	end
 end
 
@@ -2831,22 +2863,19 @@ end
 --------------------------------------------------------------------------------
 -- Trees
 
-local TREE_DENSITY_SIZE = 512
+local TREE_DENSITY_SIZE = 128
 
 local function SetTreeDensity(params, cells)
 	for i = 1, #cells do
 		local thisCell = cells[i]
 		if thisCell.firstMirror then
-			if thisCell.isMainStartPos then
-				thisCell.treeDensity = max(0, random()*0.1 - 0.6)
-			elseif thisCell.isAuxStartPos then
-				thisCell.treeDensity = max(0, random()*0.1 - 0.2)
-			elseif random() < 0.15 then
-				thisCell.treeDensity = 0.9 + 0.8*random()
-			elseif random() < 0.55 then
-				thisCell.treeDensity = 0.3 + 0.6*random()
-			else
-				thisCell.treeDensity = 0.05 + 0.3*random()
+			thisCell.treeDensity = 0
+			if thisCell.tier <= params.treeMaxTier and thisCell.tier >= params.treeMinTier and not thisCell.isMainStartPos then
+				if random() < 0.35 then
+					thisCell.treeDensity = 0.9 + 0.8*random()
+				elseif random() < 0.1 then
+					thisCell.treeDensity = 4 + 3*random()
+				end
 			end
 			thisCell.treeDensity = thisCell.treeDensity*params.treeMult
 			if thisCell.mirror then
@@ -2859,11 +2888,11 @@ end
 local function ApplyTreeDensity(cells)
 	local densityMap = {}
 	local point = {}
-	for x = TREE_DENSITY_SIZE/2, MAP_X, TREE_DENSITY_SIZE do
+	for x = 0, MAP_X, TREE_DENSITY_SIZE do
 		densityMap[x] = {}
-		point[1] = x
-		for z = TREE_DENSITY_SIZE/2, MAP_Z, TREE_DENSITY_SIZE do
-			point[2] = z
+		point[1] = x + TREE_DENSITY_SIZE/2
+		for z = 0, MAP_Z, TREE_DENSITY_SIZE do
+			point[2] = z + TREE_DENSITY_SIZE/2
 			local closeCell = GetClosestCell(point, cells)
 			if closeCell then
 				densityMap[x][z] = (closeCell.treeDensity or 0)
@@ -3006,11 +3035,12 @@ local newParams = {
 	nonBorderSeaNeighbourLimit = 0, -- Only allow lone lakes.
 	StartPositionFunc = SetStartAndModifyCellTiers_SetPoint,
 	--forceFord = true, -- To implement
-	baseMexesPerSide = 11,
-	forcedMidMexes = 1,
-	forcedMinMexRadius = 1000,
+	baseMexesPerSide = 12,
+	forcedMidMexes = 0,
+	forcedMinMexRadius = 800,
 	emptyAreaMexes = 3,
-	emptyAreaMexRadius = 1000,
+	emptyAreaMexRadiusMin = 800,
+	emptyAreaMexRadiusRand = 2200,
 	mexLoneSize = 310,
 	mexPairSize = 90,
 	startMexGap = 300, -- Gap is not size, but distance between mexes
@@ -3019,16 +3049,18 @@ local newParams = {
 	midMexDetectGap = 220,
 	doubleMexSize = 420,
 	predefinedMexes = {
-		{1900, 550},
-		{550, 1900},
+		{1750, 450},
+		{450, 1750},
 	},
-	treeMult = 0.001,
+	treeMult = 3,
+	treeMinTier = 1,
+	treeMaxTier = 2,
 }
 
 local function MakeMap()
 	local params = newParams
 	local randomSeed = GetSeed()
-	--randomSeed = 3747085 -- Floodfill bug.
+	--randomSeed = 7641267
 	math.randomseed(randomSeed)
 
 	Spring.SetGameRulesParam("typemap", "temperate2")
@@ -3104,6 +3136,11 @@ function PointEcho(point, text)
 	Spring.MarkerAddPoint(point[1], 0, point[2], text or "")
 end
 
+function PointEchoMirror(point, text)
+	PointEcho(point, text)
+	PointEcho(ApplyRotSymmetry(point), text)
+end
+
 function LineDrawEcho(p1, p2, text)
 	LineEcho(p1, p2, text)
 	if not text then
@@ -3121,8 +3158,8 @@ function LineEcho(p1, p2, text)
 end
 
 function LineEchoMirror(line, text)
-	 LineEcho(line, text)
-	 LineEcho(ApplyRotSymmetry(line[1], line[2]), text)
+	LineEcho(line, text)
+	LineEcho(ApplyRotSymmetry(line[1], line[2]), text)
 end
 
 function LineDraw(p1, p2)

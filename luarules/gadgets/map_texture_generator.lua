@@ -139,7 +139,7 @@ local function SetMapTexture(texturePool, mapTexX, mapTexZ, topTexX, topTexZ, to
 	)
 
 	-- specular probably doesn't need to be entirely full reso tbf
-	local spectex = gl.CreateTexture(MAP_X/4, MAP_Z/4,
+	local spectex = gl.CreateTexture(MAP_X, MAP_Z,
 		{
 			border = false,
 			min_filter = GL.LINEAR,
