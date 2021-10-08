@@ -284,7 +284,7 @@ local function SetMapTexture(texturePool, mapTexX, mapTexZ, topTexX, topTexZ, to
 			glTexture(3, false)
 			glTexture(4,":l:unittextures/tacticalview/terran/specular/beach.jpg");
 			glTexture(4, false)
-			glTexture(5,":l:unittextures/tacticalview/terran/specular/midlands.png");
+			glTexture(5,":l:unittextures/tacticalview/terran/specular/cloudgrass.png");
 			glTexture(5, false)
 			glTexture(6,":l:unittextures/tacticalview/terran/specular/highlands.png");
 			glTexture(6, false)
@@ -304,7 +304,7 @@ local function SetMapTexture(texturePool, mapTexX, mapTexZ, topTexX, topTexZ, to
 		glDeleteTexture(":l:unittextures/tacticalview/terran/specular/flats.png");
 		glDeleteTexture(":l:unittextures/tacticalview/terran/specular/cliffs.png");
 		glDeleteTexture(":l:unittextures/tacticalview/terran/specular/beach.jpg");
-		glDeleteTexture(":l:unittextures/tacticalview/terran/specular/midlands.png");
+		glDeleteTexture(":l:unittextures/tacticalview/terran/specular/cloudgrass.png");
 		glDeleteTexture(":l:unittextures/tacticalview/terran/specular/highlands.png");
 		glDeleteTexture(":l:unittextures/tacticalview/terran/specular/slopes.png");
 		glDeleteTexture(":l:unittextures/tacticalview/terran/specular/ramps.png");

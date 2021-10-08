@@ -25,7 +25,7 @@ local DRAW_EDGES = true
 local PRINT_TIERS = false
 local PRINT_MEX_ALLOC = true
 local DO_SMOOTHING = true
-local RELOAD_REGEN = true
+local RELOAD_REGEN = false
 local SHOW_WAVEMAP = false
 
 --------------------------------------------------------------------------------
@@ -2784,11 +2784,12 @@ local function GetRandomMexPos(mexes, smoothHeights, newMexSize, pos, useOtherSi
 	local tries = 0
 	while tries < 120 do
 		local randomPoint, timeout = GetRandomPointInCircleAvoid(newMexSize, mexes, 4, pos, placeRadius, 150, false, useOtherSize)
-		if (not timeout) and SufficientlyFlat(randomPoint, smoothHeights, 52, 11, 3) then
+		if (not timeout) and SufficientlyFlat(randomPoint, smoothHeights, 72, 11, 3) then
 			return randomPoint
 		end
 		placeRadius = placeRadius + placeIncrement
 		tries = tries + 1
+		PointEcho(randomPoint, tries)
 	end
 	return false
 end
