@@ -6,7 +6,7 @@ function gadget:GetInfo()
       date         = "26/04/2016",
       license      = "GPL 2.0 or later", -- should be compatible with Spring
       layer        = 10,
-      enabled      = true,
+      enabled      = false,
    }
 end
 
