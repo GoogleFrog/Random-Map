@@ -22,9 +22,9 @@ local MIN_EDGE_LENGTH = 10
 local DISABLE_TERRAIN_GENERATOR = false
 local TIME_MAP_GEN = false
 local DRAW_EDGES = true
-local PRINT_TIERS = false
-local PRINT_MEX_ALLOC = true
 local DO_SMOOTHING = true
+local PRINT_TIERS = false
+local PRINT_MEX_ALLOC = false
 local RELOAD_REGEN = false
 local SHOW_WAVEMAP = false
 
@@ -341,18 +341,33 @@ end
 
 local function PutPointInMap(point, edgeBuffer)
 	point = {point[1], point[2]}
+	local changed = false
 	if point[1] < edgeBuffer then
-		point[1] = edgeBuffer
+		point[1] = edgeBuffer + (edgeBuffer - point[1])
 	elseif point[1] > MAP_X - edgeBuffer then
-		point[1] = MAP_X - edgeBuffer
+		point[1] = MAP_X - edgeBuffer - (point[1] - (MAP_X - edgeBuffer))
 	end
 	
 	if point[2] < edgeBuffer then
-		point[2] = edgeBuffer
+		point[2] = edgeBuffer + (edgeBuffer - point[2])
 	elseif point[2] > MAP_Z - edgeBuffer then
 		point[2] = MAP_Z - edgeBuffer
 	end
 	
+	-- Safety to ensure the point is always within the map.
+	if changed then
+		if point[1] < edgeBuffer then
+			point[1] = edgeBuffer
+		elseif point[1] > MAP_X - edgeBuffer then
+			point[1] = MAP_X - edgeBuffer
+		end
+		
+		if point[2] < edgeBuffer then
+			point[2] = edgeBuffer
+		elseif point[2] > MAP_Z - edgeBuffer then
+			point[2] = MAP_Z - edgeBuffer - (point[2] - (MAP_Z - edgeBuffer))
+		end
+	end
 	return point
 end
 
@@ -1860,7 +1875,7 @@ local function ChangeCellTierIfHomogenousNeighbours(cell, tierConst, tierHeight,
 	return tierMin, tierMax
 end
 
-local function FillInLargeBodiesOfWater(cells, tierConst, tierHeight, minLandTier, limit)
+local function FillInLargeBodiesOfWater(cells, tierConst, tierHeight, minLandTier, limit, maxAverageTier)
 	local thingsToDo = true
 	
 	while thingsToDo do
@@ -1868,17 +1883,31 @@ local function FillInLargeBodiesOfWater(cells, tierConst, tierHeight, minLandTie
 		for i = 1, #cells do
 			local cell = cells[i]
 			if (not cell.adjacentToBorder) and cell.tier < minLandTier then
-				local nearbyWaterCount = 0
-				local nbhd = cell.neighbours
-				for j = 1, #nbhd do
-					local otherCell = nbhd[j]
-					if (cell.mirror and cell.mirror.index ~= otherCell.index) and otherCell.tier < minLandTier then
-						nearbyWaterCount = nearbyWaterCount + 1
-						if nearbyWaterCount > limit then
-							SetCellTier(cell, minLandTier, tierConst, tierHeight)
-							thingsToDo = true
-							break
+				if limit < 0 then
+					SetCellTier(cell, minLandTier, tierConst, tierHeight)
+				else
+					local nearbyWaterCount = 0
+					local nbhd = cell.neighbours
+					local averageTierSum = 0
+					local averageTierCount = 0
+					for j = 1, #nbhd do
+						local otherCell = nbhd[j]
+						if (cell.mirror and cell.mirror.index ~= otherCell.index) and otherCell.tier < minLandTier then
+							nearbyWaterCount = nearbyWaterCount + 1
+							if nearbyWaterCount > limit then
+								SetCellTier(cell, minLandTier, tierConst, tierHeight)
+								thingsToDo = true
+								averageTierSum = false
+								averageTierCount = false
+								break
+							end
+							averageTierSum = averageTierSum + otherCell.tier
+							averageTierCount = averageTierCount + 1
 						end
+					end
+					if averageTierSum and maxAverageTier and averageTierSum > maxAverageTier then
+						SetCellTier(cell, minLandTier, tierConst, tierHeight)
+						thingsToDo = true
 					end
 				end
 			end
@@ -1943,7 +1972,7 @@ local function GenerateCellTiers(params, cells, waveFunc)
 	
 	-- Cut down on water cells.
 	if params.nonBorderSeaNeighbourLimit then
-		FillInLargeBodiesOfWater(cells, tierConst, tierHeight, minLandTier, params.nonBorderSeaNeighbourLimit)
+		FillInLargeBodiesOfWater(cells, tierConst, tierHeight, minLandTier, params.nonBorderSeaNeighbourLimit, params.seaLimitMaxAverageTier)
 	end
 	
 	-- Make water more accessible.
@@ -2780,16 +2809,18 @@ end
 
 local function GetRandomMexPos(mexes, smoothHeights, newMexSize, pos, useOtherSize)
 	local placeRadius = 120
-	local placeIncrement = 10
+	local placeIncrement = 2.5
 	local tries = 0
-	while tries < 120 do
+	while tries < 350 do
 		local randomPoint, timeout = GetRandomPointInCircleAvoid(newMexSize, mexes, 4, pos, placeRadius, 150, false, useOtherSize)
 		if (not timeout) and SufficientlyFlat(randomPoint, smoothHeights, 72, 11, 3) then
 			return randomPoint
 		end
 		placeRadius = placeRadius + placeIncrement
 		tries = tries + 1
-		PointEcho(randomPoint, tries)
+		if PRINT_MEX_ALLOC and tries > 335 then
+			PointEcho(randomPoint, tries)
+		end
 	end
 	return false
 end
@@ -3033,7 +3064,8 @@ local newParams = {
 	bucketSizeMultRand = 0.3,
 	heightOffsetFactor = 0.9,
 	mapBorderTier = false,
-	nonBorderSeaNeighbourLimit = 0, -- Only allow lone lakes.
+	nonBorderSeaNeighbourLimit = 0, -- Allow lone lakes
+	seaLimitMaxAverageTier = -0.7, -- Most nearby area has to be sand.
 	StartPositionFunc = SetStartAndModifyCellTiers_SetPoint,
 	--forceFord = true, -- To implement
 	baseMexesPerSide = 12,
@@ -3052,6 +3084,8 @@ local newParams = {
 	predefinedMexes = {
 		{1750, 450},
 		{450, 1750},
+		{2850, 650},
+		{650, 2850},
 	},
 	treeMult = 3,
 	treeMinTier = 1,
@@ -3061,7 +3095,7 @@ local newParams = {
 local function MakeMap()
 	local params = newParams
 	local randomSeed = GetSeed()
-	--randomSeed = 7641267
+	randomSeed = 8919711
 	math.randomseed(randomSeed)
 
 	Spring.SetGameRulesParam("typemap", "temperate2")

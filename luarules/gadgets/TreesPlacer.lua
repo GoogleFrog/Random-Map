@@ -10,7 +10,7 @@ function gadget:GetInfo()
    }
 end
 
-local MAX_NORMAL = 0.8
+local MAX_NORMAL = 0.91
 local VEH_NORMAL = 0.892
 local BOT_NORMAL = 0.585
 
@@ -21,7 +21,7 @@ end
 local MAP_X = Game.mapSizeX
 local MAP_Z = Game.mapSizeZ
 
-local minTreeHeight = 85
+local minTreeHeight = 130
 local maxTreeHeight = 260
 local minDistance = 64
 local density = 0.8
@@ -30,6 +30,9 @@ local floor = math.floor
 local ceil = math.ceil
 
 local DENSITY_SAMPLE_RADIUS = 550
+
+local lowTreeMap = {1, 1, 3, 5}
+local highTreeMap = {2, 4, 6, 6}
 
 local getHeightDensity = function(y, invdensity)
 	local dy = (y - 10)/(900 - 10)
@@ -61,7 +64,19 @@ local function GetTreeSlopeChance(x, z)
 	return 0
 end
 
+local function GetTree(treeList, height)
+	if height < minTreeHeight + 0.45*(maxTreeHeight - minTreeHeight) then
+		return treeList[lowTreeMap[1 + math.floor(#lowTreeMap*math.random())]]
+	elseif height > minTreeHeight + 0.55*(maxTreeHeight - minTreeHeight) then
+		return treeList[highTreeMap[1 + math.floor(#highTreeMap*math.random())]]
+	end
+	return treeList[1 + math.floor(6*math.random())]
+end
+
 function gadget:Initialize()
+	if Spring.GetGameFrame() > 0 then
+		return false
+	end
 	-- get all replacement trees
 	local replacementTrees = {}
 	local typeCount = 0
@@ -95,6 +110,7 @@ function gadget:Initialize()
 				replacementTrees[typeCount] = featureDefID
 			end 
 		end
+		Spring.Utilities.TableEcho(replacementTrees, "replacementTrees")
 	end
 	
 	if typeCount == 0 then
@@ -126,7 +142,7 @@ function gadget:Initialize()
 					math.random() < GetCellTreeDensity(x, z) then
 				local rx, rz = floor(px/16), floor(pz/16)
 				if not (avoidMex[rx] and avoidMex[rx][rz]) then
-					Spring.CreateFeature(replacementTrees[math.random(1, typeCount)], px, py, pz, math.random(0, 360)*math.pi*2/360)
+					Spring.CreateFeature(GetTree(replacementTrees, py), px, py, pz, math.random(0, 360)*math.pi*2/360)
 				end
 			end
 		end

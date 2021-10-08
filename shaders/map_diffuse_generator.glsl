@@ -50,7 +50,7 @@ void main()
 
     // base texture
     gl_FragColor = texture2D(tex11,coord*min(3.1, 3.0 + 0.1*slope));
-    gl_FragColor = mix(gl_FragColor,texture2D(tex11,coord*min(2.4, 2.5 + 0.1*slope)), 0.5 + 0.4*sin(height));
+    gl_FragColor = mix(gl_FragColor,texture2D(tex11,coord*min(1.8, 1.7 + 0.1*slope)), 0.5 + 0.4*sin(height*0.7));
 
     // ---- altitude textures ----
 
@@ -71,7 +71,7 @@ void main()
     gl_FragColor = mix(mix(gl_FragColor,texture2D(tex10,coord*min(0.8, 0.78 + 2.5*slope)),factor),texture2D(tex5,coord*0.9),0.18*factor);
 	
     // admix high grass
-    factor = smoothstep(170.0,190.0,height) * (1.0-slope);
+    factor = smoothstep(180.0,210.0,height) * (1.0-slope);
     gl_FragColor = mix(mix(gl_FragColor,texture2D(tex9,coord*min(0.8, 0.78 + 2.5*slope)),factor),texture2D(tex5,coord*0.65),0.1*factor);
 
     // admix highlands
