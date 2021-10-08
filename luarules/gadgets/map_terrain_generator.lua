@@ -21,8 +21,8 @@ end
 local MIN_EDGE_LENGTH = 10
 local DISABLE_TERRAIN_GENERATOR = false
 local TIME_MAP_GEN = false
-local DRAW_EDGES = true
 local DO_SMOOTHING = true
+local DRAW_EDGES = false
 local PRINT_TIERS = false
 local PRINT_MEX_ALLOC = false
 local RELOAD_REGEN = false
@@ -3095,7 +3095,7 @@ local newParams = {
 local function MakeMap()
 	local params = newParams
 	local randomSeed = GetSeed()
-	randomSeed = 8919711
+	--randomSeed = 8919711
 	math.randomseed(randomSeed)
 
 	Spring.SetGameRulesParam("typemap", "temperate2")
