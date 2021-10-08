@@ -2422,7 +2422,7 @@ local function GetHeightMod(tierMin, tierMax, posTier, posChange, x, z)
 	return tierChange
 end
 
-local function ApplyHeightModifiers(tierConst, tierHeight, tierMin, tierMax, tiers, heightMod, waveMod, waveFunc, waveMult)
+local function ApplyHeightModifiers(tierConst, tierHeight, tierMin, tierMax, tiers, heightMod, waveMod, waveFunc, waveMult, stripeRisk)
 	local heights = {}
 	
 	for x = 0, MAP_X, SQUARE_SIZE do
@@ -2435,7 +2435,7 @@ local function ApplyHeightModifiers(tierConst, tierHeight, tierMin, tierMax, tie
 			if waveFunc then
 				local upmod = (waveMod and waveMod.up[posIndex]) or 0
 				local downmod = (waveMod and waveMod.down[posIndex]) or 0
-				waveHeight = waveFunc(x, z)*(waveMult + upmod + downmod) + 6*sin(waveFunc(x, z)*0.02)
+				waveHeight = waveFunc(x, z)*(waveMult + upmod + downmod) + stripeRisk*sin(waveFunc(x, z)*0.02)
 			end
 			
 			heights[x][z] = baseHeight + waveHeight + tierHeight*change
@@ -3005,7 +3005,7 @@ local function MakeHeightmap(cells, edges, heightMod, waveFunc, waveHeightMult, 
 	local tiers = tierFlood.RunFloodfillAndGetValues(cells)
 	EchoProgress("Tier propagation complete")
 
-	local heights = ApplyHeightModifiers(tierConst, tierHeight, tierMin, tierMax, tiers, heightMod, waveMod, waveFunc, waveHeightMult)
+	local heights = ApplyHeightModifiers(tierConst, tierHeight, tierMin, tierMax, tiers, heightMod, waveMod, waveFunc, waveHeightMult, params.stripeRisk)
 	EchoProgress("Height application complete")
 	
 	Spring.ClearWatchDogTimer()
@@ -3092,12 +3092,13 @@ local newParams = {
 	treeMult = 3,
 	treeMinTier = 1,
 	treeMaxTier = 2,
+	stripeRisk = 0,
 }
 
 local function MakeMap()
 	local params = newParams
 	local randomSeed = GetSeed()
-	--randomSeed = 8919711
+	randomSeed = 3981838
 	math.randomseed(randomSeed)
 
 	Spring.SetGameRulesParam("typemap", "temperate2")
