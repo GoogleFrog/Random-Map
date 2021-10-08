@@ -83,7 +83,7 @@ void main()
     // admix ramps
 	if (slope < vehCliff) {
 		if (slope > bandingMin) {
-			factor = 0.6*smoothstep(bandingMin, vehCliff, slope)*(1.0 - (1.0 - smoothstep(vehCliffMinus, vehCliffPlus, slope))*(sin(height/1.6) + 1.0)*0.5);
+			factor = 0.5*smoothstep(bandingMin, vehCliff, slope)*(1.0 - (1.0 - smoothstep(vehCliffMinus, vehCliffPlus, slope))*(sin(height/1.6) + 1.0)*0.5);
 			gl_FragColor = mix(gl_FragColor,texture2D(tex2,coord*4.2), 0.7*smoothstep(bandingMin, vehCliff, slope));
 			gl_FragColor = mix(gl_FragColor,texture2D(tex8,coord*2.7), factor);
 		}
