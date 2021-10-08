@@ -68,11 +68,11 @@ void main()
 
     // admix low grass
     factor = smoothstep(110.0,145.0,height) * (1.0-slope);
-    gl_FragColor = mix(mix(gl_FragColor,texture2D(tex10,coord*min(0.8, 0.78 + 2.5*slope)),factor),texture2D(tex5,coord*0.9),0.18*factor);
+    gl_FragColor = mix(mix(gl_FragColor,texture2D(tex10,coord*min(0.8, 0.788 + 2.5*slope)),factor),texture2D(tex5,coord*0.9),0.18*factor);
 	
     // admix high grass
     factor = smoothstep(180.0,210.0,height) * (1.0-slope);
-    gl_FragColor = mix(mix(gl_FragColor,texture2D(tex9,coord*min(0.8, 0.78 + 2.5*slope)),factor),texture2D(tex5,coord*0.65),0.1*factor);
+    gl_FragColor = mix(mix(gl_FragColor,texture2D(tex9,coord*min(0.8, 0.788 + 2.5*slope)),factor),texture2D(tex5,coord*0.65),0.1*factor);
 
     // admix highlands
     factor = smoothstep(255.0,290.0,height) * (1.0-slope);
