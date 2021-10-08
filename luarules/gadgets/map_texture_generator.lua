@@ -14,7 +14,7 @@ function gadget:GetInfo()
 		date      = "26 September 2021",
 		license   = "GNU GPL, v2 or later",
 		layer     = 10,
-		enabled   = true, --  loaded by default?
+		enabled   = (gl.CreateShader and true) or false, --  loaded by default?
 	}
 end
 
