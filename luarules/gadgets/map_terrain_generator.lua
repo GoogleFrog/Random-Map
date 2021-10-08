@@ -651,6 +651,8 @@ local function SufficientlyFlat(pos, heights, checkSquare, flatRequirement, heig
 	local maxHeight = minHeight
 	
 	local toCheck = {
+		Add(pos, {0, 0}),
+		Add(pos, {checkSquare, checkSquare}),
 		Add(pos, {-checkSquare, -checkSquare}),
 		Add(pos, {checkSquare, -checkSquare}),
 		Add(pos, {-checkSquare, checkSquare}),
