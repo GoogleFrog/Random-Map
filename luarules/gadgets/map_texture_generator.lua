@@ -191,8 +191,7 @@ local function SetMapTexture(texturePool, mapTexX, mapTexZ, topTexX, topTexZ, to
 			tex10 = 10,
 			tex11 = 11,
 		},
-	});
-
+	})
 
 	Spring.Echo(gl.GetShaderLog())
 	if(diffuseShader) then

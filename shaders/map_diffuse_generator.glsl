@@ -99,7 +99,7 @@ void main()
 		gl_FragColor = mix(gl_FragColor,texture2D(tex8,coord*2.7), 0.8 + 0.2*smoothstep(vehCliffEpsilon, botCliff, slope));
 		if (slope > botCliffMinus) {
 			factor = smoothstep(botCliffMinus, botCliff, slope);
-			gl_FragColor = mix(gl_FragColor,texture2D(tex3,6.5*coord),factor);
+			gl_FragColor = mix(gl_FragColor,texture2D(tex3,1.0*coord),factor*0.6);
 		}
 		if (slope > botCliffMinusMinus) {
 			factor = smoothstep(botCliffMinusMinus, botCliff, slope)*0.3;
@@ -108,9 +108,11 @@ void main()
 	}
 	else {
 		// admix cliffsides
-		factor = (1.0 - smoothstep(botCliff, 1.0, slope))*0.3;
-		gl_FragColor = mix(gl_FragColor,texture2D(tex3,6.5*coord),1.0);
-		gl_FragColor = mix(gl_FragColor,texture2D(tex7,2.0*coord*(1.0 + slope*0.01)),factor);
+		factor = (1.0 - smoothstep(botCliff, 1.0, slope));
+		gl_FragColor = mix(gl_FragColor,texture2D(tex3,1.0*coord),factor);
+		gl_FragColor = mix(gl_FragColor,texture2D(tex8,coord*1.5), factor*0.5);
+		gl_FragColor = mix(gl_FragColor,texture2D(tex3,1.0*coord),0.6);
+		gl_FragColor = mix(gl_FragColor,texture2D(tex2,5.0*coord),factor*0.22);
 	}
 	
 	// Show mountains over cliffs

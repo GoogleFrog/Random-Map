@@ -19,14 +19,15 @@ end
 -- Configuration
 
 local MIN_EDGE_LENGTH = 10
-local DISABLE_TERRAIN_GENERATOR = false
-local TIME_MAP_GEN = false
 local DO_SMOOTHING = true
+local DISABLE_TERRAIN_GENERATOR = false
+local RELOAD_REGEN = false
+
 local DRAW_EDGES = false
 local PRINT_TIERS = false
 local PRINT_MEX_ALLOC = false
-local RELOAD_REGEN = false
 local SHOW_WAVEMAP = false
+local TIME_MAP_GEN = false
 
 --------------------------------------------------------------------------------
 --------------------------------------------------------------------------------
@@ -2748,14 +2749,22 @@ local function AllocateMetalSpots(cells, edges, minLandTier, startCell, params)
 				wantedMexes = wantedMexes - thisCell.metalSpots
 			end
 			if PRINT_MEX_ALLOC then
+				local canDouble = (((not thisCell.adjacentToStart) and 
+					(thisCell.mirror and Dist(thisCell.averageMid, thisCell.mirror.averageMid) > 2000) and 
+					thisCell.mexAlloc and (not thisCell.unreachable)) and "yes") or "no"
+			
 				PointEchoMirror(cells[i].site,
 					"T: " .. thisCell.tier .. 
 					", Mid: " .. floor(100*thisCell.closeDistFactor) .. 
 					", Crow: " .. floor(100*thisCell.startDistFactor) .. 
-					", Alloc: " .. floor(1000*(thisCell.mexAlloc or 0)))
+					", Alloc: " .. floor(1000*(thisCell.mexAlloc or 0)) ..
+					" Can D: " .. canDouble)
 			end
 		end
 	end
+	
+	-- Reduce the chance of subsequent double mexes.
+	local existingDoubleMult = 1
 	
 	while wantedMexes > 0 do
 		local mexCell = cells[random(1, #cells)]
@@ -2773,13 +2782,16 @@ local function AllocateMetalSpots(cells, edges, minLandTier, startCell, params)
 			end
 		end
 		
-		local allocChange = mexCell.mexAlloc or 0
 		local mexAssignment = 1
 		local distBetweenMirror = mexCell.mirror and Dist(mexCell.averageMid, mexCell.mirror.averageMid)
-		if (not mexCell.adjacentToStart) and (mexCell.mirror and distBetweenMirror > 2000) then
-			local doubleChance = max(0.02, min(0.45, mexCell.mexAlloc*0.45))
-			if mexCell.mexAlloc and (random() < doubleChance) and (not mexCell.unreachable) then
+		if (not mexCell.adjacentToStart) and (mexCell.mirror and distBetweenMirror > 2000) and mexCell.mexAlloc and (not mexCell.unreachable) then
+			local doubleChance = max(0.05, min(0.5, mexCell.mexAlloc*0.8))*existingDoubleMult
+			if (random() < doubleChance) then
 				mexAssignment = 2
+				existingDoubleMult = existingDoubleMult*0.7
+				if PRINT_MEX_ALLOC then
+					PointEchoMirror(mexCell.site, "_____________________________________ Double")
+				end
 			end
 		end
 		
@@ -2792,6 +2804,7 @@ local function AllocateMetalSpots(cells, edges, minLandTier, startCell, params)
 		if mexAssignment == 2 then
 			mexCell.mexSize = params.mexPairSize
 			mexCell.mexFallbackSize = params.mexPairGapRequirement
+			mexCell.mexPostPlaceSize = params.mexPairGapRequirement
 		elseif (mexCell.mirror and distBetweenMirror > 2000) then
 			mexCell.mexSize = ((random() > 0.1 and params.mexLoneSize) or params.mexPairSize) -- Whether to allow grouped mexes.
 		else
@@ -2809,13 +2822,22 @@ local function AllocateMetalSpots(cells, edges, minLandTier, startCell, params)
 	--end
 end
 
-local function GetRandomMexPos(mexes, smoothHeights, newMexSize, pos, useOtherSize)
+local function GetRandomMexPos(mexes, smoothHeights, newMexSize, midMergeDist, pos, useOtherSize)
 	local placeRadius = 120
 	local placeIncrement = 2.5
 	local tries = 0
+	local midPos = {MAP_X*0.5, MAP_Z*0.5}
 	while tries < 350 do
-		local randomPoint, timeout = GetRandomPointInCircleAvoid(newMexSize, mexes, 4, pos, placeRadius, 150, false, useOtherSize)
-		if (not timeout) and SufficientlyFlat(randomPoint, smoothHeights, 72, 11, 3) then
+		local randomPoint, failed = GetRandomPointInCircleAvoid(newMexSize, mexes, 4, pos, placeRadius, 150, false, useOtherSize)
+		-- Do not let mexes be too close to their own mirror
+		if not failed then
+			local midDist = Dist(randomPoint, midPos)
+			if midDist < newMexSize*0.5 and midDist > midMergeDist then
+				failed = true
+			end
+		end
+		-- Only accept flat areas
+		if (not failed) and SufficientlyFlat(randomPoint, smoothHeights, 72, 20, 3) then
 			return randomPoint
 		end
 		placeRadius = placeRadius + placeIncrement
@@ -2836,52 +2858,82 @@ local function AddToMexPosList(params, mexes, pos, size, mexValue)
 	end
 	pos.size = size
 	--PointEcho(pos, "S: " .. (#mexes + 1) .. " _________________ " .. size .. ", " .. (closeID or "NIL") .. ", " .. (closeDist or "NIL"))
-	mexes[#mexes + 1] = pos
+	local index = #mexes + 1
+	mexes[index] = pos
 	GG.mapgen_mexList = GG.mapgen_mexList or {}
 	GG.mapgen_mexList[#GG.mapgen_mexList + 1] = {x = pos[1], z = pos[2], metal = mexValue}
+	return index
 end
 
 local function PlaceMex(params, mexes, smoothHeights, newMexSize, pos, isStartCell)
-	local mexPos = GetRandomMexPos(mexes, smoothHeights, newMexSize, pos, not isStartCell)
+	local mexPos = GetRandomMexPos(mexes, smoothHeights, newMexSize, params.midMexDetectGap*0.5, pos, not isStartCell)
 	if not mexPos then
 		return
 	end
 	local mirrorMexPos = ApplyRotSymmetry(mexPos)
-	local mexValue = ((megaMex and 4) or 2)
 	
+	local placed = {}
 	if Dist(mexPos, mirrorMexPos) > params.midMexDetectGap then
-		AddToMexPosList(params, mexes, mexPos, newMexSize)
-		AddToMexPosList(params, mexes, mirrorMexPos, newMexSize)
+		placed[#placed + 1] = AddToMexPosList(params, mexes, mexPos, newMexSize)
+		placed[#placed + 1] = AddToMexPosList(params, mexes, mirrorMexPos, newMexSize)
 	else
-		AddToMexPosList(params, mexes, {MID_X, MID_Z}, newMexSize, mexValue)
+		placed[#placed + 1] = AddToMexPosList(params, mexes, {MID_X, MID_Z}, newMexSize, mexValue)
+	end
+	return placed
+end
+
+local function PlaceCellMexes(cell, smoothHeights, params, mexes)
+	local toPlace = cell.metalSpots
+	if cell.metalSpots > 1 and cell.mexFallbackSize then
+		local closeID, closeDist = GetClosestPoint(cell.mexMidpoint or cell.averageMid, mexes, true)
+		if closeDist < cell.mexFallbackSize then
+			cell.mexSize = cell.mexFallbackSize
+			toPlace = 1
+		end
+	end
+	
+	local placed = {}
+	for i = 1, toPlace do
+		local newPlaced = PlaceMex(params, mexes, smoothHeights, cell.mexSize, cell.mexMidpoint or cell.averageMid, cell.isMainStartPos)
+		if newPlaced then
+			for j = 1, #newPlaced do
+				placed[#placed + 1] = newPlaced[j]
+			end
+		end
+	end
+	
+	if cell.mexPostPlaceSize then
+		for i = 1, #placed do
+			mexes[i].size = cell.mexPostPlaceSize
+		end
 	end
 end
 
-local function PlaceMetalSpots(cells, smoothHeights, params)
+local function PlaceMetalSpots(cells, startCell, smoothHeights, params)
 	local mexes = {}
-	-- Add predefined mexes first.
+	-- Add start mexes first to establish a buffer around the start pos.
+	if startCell.metalSpots then
+		PlaceCellMexes(startCell, smoothHeights, params, mexes)
+	end
+	
+	-- Add predefined mexes to empty areas.
 	for i = 1, #params.predefinedMexes do
 		PlaceMex(params, mexes, smoothHeights, 280, params.predefinedMexes[i])
 	end
 	
-	-- Add cell mexes
+	-- Add cell double mexes
 	for i = 1, #cells do
 		local thisCell = cells[i]
-		if thisCell.firstMirror then
-			if thisCell.megaMex then
-				PlaceMex(params, mexes, smoothHeights, thisCell.mexSize, thisCell.mexMidpoint or thisCell.averageMid, thisCell.isMainStartPos)
-			elseif thisCell.metalSpots then
-				if thisCell.metalSpots > 1 and thisCell.mexFallbackSize then
-					local closeID, closeDist = GetClosestPoint(thisCell.mexMidpoint or thisCell.averageMid, mexes, true)
-					if closeDist < thisCell.mexFallbackSize then
-						thisCell.mexSize = thisCell.mexFallbackSize
-						thisCell.metalSpots = 1
-					end
-				end
-				for j = 1, thisCell.metalSpots do
-					PlaceMex(params, mexes, smoothHeights, thisCell.mexSize, thisCell.mexMidpoint or thisCell.averageMid, thisCell.isMainStartPos)
-				end
-			end
+		if (thisCell.metalSpots or 0) > 1 and thisCell.firstMirror and not thisCell.isMainStartPos then
+			PlaceCellMexes(thisCell, smoothHeights, params, mexes)
+		end
+	end
+	
+	-- Add cell single mexes
+	for i = 1, #cells do
+		local thisCell = cells[i]
+		if thisCell.metalSpots == 1 and thisCell.firstMirror and not thisCell.isMainStartPos then
+			PlaceCellMexes(thisCell, smoothHeights, params, mexes)
 		end
 	end
 	
@@ -3031,7 +3083,7 @@ local waitCount = 0
 local newParams = {
 	startPoint = {550, 550},
 	startPointSize = 600,
-	points = 16,
+	points = 14,
 	midPoints = 2,
 	midPointRadius = 850,
 	midPointSpace = 220,
@@ -3051,9 +3103,9 @@ local newParams = {
 	highDiffParallelIglooChance = 0.5,
 	cliffWidth = 38,
 	steepCliffWidth = 18,
-	steepCliffChance = 0.4,
+	steepCliffChance = 0.55,
 	tierConst = 42,
-	tierHeight = 56,
+	tierHeight = 55,
 	vehPassTiers = 2, -- Update based on tierHeight
 	rampWidth  = 135,
 	generalWaveMod = 1,
@@ -3078,10 +3130,10 @@ local newParams = {
 	emptyAreaMexRadiusRand = 2200,
 	mexLoneSize = 310,
 	mexPairSize = 90,
-	startMexGap = 300, -- Gap is not size, but distance between mexes
+	startMexGap = 320, -- Gap is not size, but distance between mexes
 	doubleMexDetectGap = 680,
-	mexPairGapRequirement = 680,
-	midMexDetectGap = 220,
+	mexPairGapRequirement = 460,
+	midMexDetectGap = 300,
 	doubleMexSize = 420,
 	predefinedMexes = {
 		{1750, 450},
@@ -3098,7 +3150,7 @@ local newParams = {
 local function MakeMap()
 	local params = newParams
 	local randomSeed = GetSeed()
-	--randomSeed = 3981838
+	--randomSeed = 7658382
 	math.randomseed(randomSeed)
 
 	Spring.SetGameRulesParam("typemap", "temperate2")
@@ -3120,7 +3172,7 @@ local function MakeMap()
 		local smoothHeights = MakeHeightmap(cells, edges, heightMod, waveFunc, waveHeightMult, tiers, tierConst, tierHeight, tierMin, tierMax, params)
 		ApplyTreeDensity(cells)
 		
-		PlaceMetalSpots(cells, smoothHeights, params)
+		PlaceMetalSpots(cells, startCell, smoothHeights, params)
 	end
 	
 	EchoProgress("Metal generation complete")
