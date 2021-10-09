@@ -44,7 +44,7 @@ local BOT_NORMAL_PLUS = 0.85
 local BOT_NORMAL      = 0.585
 local SHALLOW_HEIGHT  = -22
 
-local USE_SHADING_TEXTURE = (Spring.GetConfigInt("AdvMapShading") == 1)
+local USE_SHADING_TEXTURE = false --(Spring.GetConfigInt("AdvMapShading") == 1)
 
 local spSetMapSquareTexture = Spring.SetMapSquareTexture
 local spGetMapSquareTexture = Spring.GetMapSquareTexture

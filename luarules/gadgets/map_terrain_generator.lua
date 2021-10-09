@@ -3055,7 +3055,7 @@ local newParams = {
 	tierConst = 42,
 	tierHeight = 56,
 	vehPassTiers = 2, -- Update based on tierHeight
-	rampWidth  = 120,
+	rampWidth  = 135,
 	generalWaveMod = 1,
 	waveDirectMult = 0.5,
 	bucketBase = 30,
@@ -3098,7 +3098,7 @@ local newParams = {
 local function MakeMap()
 	local params = newParams
 	local randomSeed = GetSeed()
-	randomSeed = 3981838
+	--randomSeed = 3981838
 	math.randomseed(randomSeed)
 
 	Spring.SetGameRulesParam("typemap", "temperate2")
