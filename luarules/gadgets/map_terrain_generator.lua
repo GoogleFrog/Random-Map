@@ -3296,7 +3296,7 @@ local function GetSpaceIncreaseParams()
 	spaceParams.midPointSpace = 260
 	spaceParams.minSpace = 230
 	spaceParams.maxSpace = 560
-	spaceParams.pointSplitRadius = 680
+	spaceParams.pointSplitRadius = 660
 	
 	spaceParams.baseMexesPerSide = 7
 	spaceParams.baseMexesRand = 5
