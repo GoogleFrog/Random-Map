@@ -21,10 +21,10 @@ end
 local MIN_EDGE_LENGTH = 10
 local DO_SMOOTHING = true
 local DISABLE_TERRAIN_GENERATOR = false
-local RELOAD_REGEN = false
+local RELOAD_REGEN = true
 
-local DRAW_EDGES = false
-local PRINT_TIERS = false
+local DRAW_EDGES = true
+local PRINT_TIERS = true
 local PRINT_MEX_ALLOC = false
 local SHOW_WAVEMAP = false
 local TIME_MAP_GEN = false
@@ -333,6 +333,22 @@ end
 --------------------------------------------------------------------------------
 --------------------------------------------------------------------------------
 -- Point manipulation
+
+local function DistanceToEdge(point)
+	if point[1] < point[2] then
+		if point[1] + point[2] < MAP_Z then
+			return point[1]
+		else
+			return MAP_Z - point[2]
+		end
+	else
+		if point[1] + point[2] < MAP_X then
+			return point[2]
+		else
+			return MAP_X - point[1]
+		end
+	end
+end
 
 local function IsPointOnDiagonal(point, diagonalWidth)
 	local xFactor = point[1]/MAP_X
@@ -1115,8 +1131,27 @@ local function DoPointSplit(points, radius, ignoreSplit)
 end
 
 local function MakeRandomPoints(params)
-	local pointNum, minSpacing, maxSpacing = params.points, params.minSpace, params.maxSpace
-	local edgeBias, midPoints, midPointRadius = params.edgeBias, params.midPoints, params.midPointRadius
+	local pointNum = params.vorPoints + floor(random()*params.vorPointsRand)
+	local minSpacing, maxSpacing = params.minSpace, params.maxSpace
+	local edgeBias, midPoints = params.edgeBias, params.midPoints
+	local midPointSpace, midPointRadius = params.midPointSpace, params.midPointRadius
+	local splitRadius = params.pointSplitRadius
+	
+	if params.vorScaleAdjustPoint then
+		local factor = (pointNum - params.vorPoints) / params.vorPointsRand
+		factor = params.vorScaleAdjustPoint * factor + (1 - factor)
+		if params.vorScaleAdjustRand then
+			factor = factor + random()*params.vorScaleAdjustRand - params.vorScaleAdjustRand*0.5
+		end
+		factor = 1/factor
+		
+		Spring.Echo("Draw points", pointNum, "factor", factor)
+		minSpacing = minSpacing * factor
+		maxSpacing = maxSpacing * factor
+		midPointRadius = midPointRadius * factor
+		midPointSpace = midPointSpace * factor
+		splitRadius = splitRadius * factor
+	end
 	
 	local points = {}
 	if params.startPoint then
@@ -1131,12 +1166,12 @@ local function MakeRandomPoints(params)
 	end
 	
 	for i = 1, midPoints do
-		local point = GetRandomPointInCircleAvoid(params.midPointSpace, points, 50, {MAP_X/2, MAP_Z/2}, params.midPointRadius, 50, false, true)
-		AddPointAndMirror(points, point, params.midPointSpace)
+		local point = GetRandomPointInCircleAvoid(midPointSpace, points, 50, {MAP_X/2, MAP_Z/2}, midPointRadius, 50, false, true)
+		AddPointAndMirror(points, point, midPointSpace)
 	end
 	
-	if params.pointSplitRadius then
-		DoPointSplit(points, params.pointSplitRadius, (params.startPoint and {1, 2}) or false)
+	if splitRadius then
+		DoPointSplit(points, splitRadius, (params.startPoint and {1, 2}) or false)
 	end
 	
 	return points
@@ -1411,13 +1446,30 @@ local function GetFloodfillHandler(defaultValue)
 	local ORTH_Z = { 0, -8, 0, 8}
 	
 	local function CheckAndFillNearby(x, z, val)
+		local activeNewCells = true
 		for i = 1, 4 do
 			local nx, nz = x + ORTH_X[i], z + ORTH_Z[i]
-			if (nx >= 0 and nz >= 0 and nx <= MAP_X and nz <= MAP_Z) and not (values[nx] and values[nx][nz]) then
-				values[nx] = values[nx] or {}
-				values[nx][nz] = val
-				fillX[#fillX + 1] = nx
-				fillZ[#fillZ + 1] = nz
+			if (nx >= 0 and nz >= 0 and nx <= MAP_X and nz <= MAP_Z) then
+				local otherVal = values[nx] and values[nx][nz]
+				if otherVal then
+					-- If the flood filler ever finds a border that does not match its own
+					-- value then there is a gap in an edge. In this case it should mark
+					-- anything it finds
+					if otherVal ~= val then
+						activeNewCells = false
+						for j = 1, i - 1 do
+							fillX[#fillX] = nil
+							fillZ[#fillZ] = nil
+						end
+					end
+				else
+					values[nx] = values[nx] or {}
+					values[nx][nz] = val
+					if activeNewCells then
+						fillX[#fillX + 1] = nx
+						fillZ[#fillZ + 1] = nz
+					end
+				end
 			end
 		end
 	end
@@ -1433,8 +1485,8 @@ local function GetFloodfillHandler(defaultValue)
 			
 			fillX[#fillX + 1] = x
 			fillZ[#fillZ + 1] = z
-			--if x < 3950 and z < 1800 and x > 2700 and z > 860 then
-			--	if val == -1 then
+			--if x < 900 and z < 4400 and x > 560 and z > 4000 then
+			--	if val == 0 then
 			--		Spring.MarkerAddPoint(x, 0, z, "")
 			--	else
 			--		Spring.MarkerAddPoint(x, 0, z, val)
@@ -1878,14 +1930,14 @@ local function ChangeCellTierIfHomogenousNeighbours(cell, tierConst, tierHeight,
 	return tierMin, tierMax
 end
 
-local function FillInLargeBodiesOfWater(cells, tierConst, tierHeight, minLandTier, limit, maxAverageTier)
+local function FillInLargeBodiesOfWater(cells, tierConst, tierHeight, minLandTier, limit, maxAverageTier, seaEdgelimit)
 	local thingsToDo = true
 	
 	while thingsToDo do
 		thingsToDo = false
 		for i = 1, #cells do
 			local cell = cells[i]
-			if (not cell.adjacentToBorder) and cell.tier < minLandTier then
+			if cell.tier < minLandTier and ((not cell.adjacentToBorder) or (seaEdgelimit and (DistanceToEdge(cell.site) > seaEdgelimit))) then
 				if limit < 0 then
 					SetCellTier(cell, minLandTier, tierConst, tierHeight)
 				else
@@ -1975,7 +2027,10 @@ local function GenerateCellTiers(params, cells, waveFunc)
 	
 	-- Cut down on water cells.
 	if params.nonBorderSeaNeighbourLimit then
-		FillInLargeBodiesOfWater(cells, tierConst, tierHeight, minLandTier, params.nonBorderSeaNeighbourLimit, params.seaLimitMaxAverageTier)
+		FillInLargeBodiesOfWater(
+			cells, tierConst, tierHeight, minLandTier,
+			params.nonBorderSeaNeighbourLimit, params.seaLimitMaxAverageTier, params.seaEdgelimit
+		)
 	end
 	
 	-- Make water more accessible.
@@ -2071,7 +2126,7 @@ local function SetEdgePassability(params, edge, minLandTier)
 			local otherEdge = nbhd[i]
 			if otherEdge.tierDiff ~= 0 and otherEdge.highTier == edge.highTier then
 				matchCount = matchCount + 1
-				if otherEdge.terrainWidth and otherEdge.terrainWidth < 100 then
+				if not otherEdge.botPass then
 					impassCount = impassCount + 1
 				end
 			end
@@ -2086,45 +2141,56 @@ local function SetEdgePassability(params, edge, minLandTier)
 		edge.terrainWidth = params.rampWidth
 	elseif edge.lowTier < minLandTier and edge.tierDiff <= 3 then
 		-- Make a ramp 95% of the time
-		edge.terrainWidth = ((0.95 < random()) and params.rampWidth) or params.cliffWidth 
-	elseif edge.length < 600 and ((impassCount == 0) or (matchCount*0.7 - impassCount >= 0)) and not edge.adjToStart and random() < ((edge.touchBorder and 0.3) or 0.75) then
+		edge.terrainWidth = ((random() < 0.95) and params.rampWidth) or params.cliffBotWidth 
+	elseif edge.length < params.impassEdgeThreshold and ((impassCount == 0) or (matchCount*0.7 - impassCount >= 0)) and 
+			not edge.adjToStart and random() < ((edge.touchBorder and 0.3) or 0.75) then
 		-- Make a cliff on short high tier difference edges
-		edge.terrainWidth = ((impassCount == 0) and params.rampWidth) or params.cliffWidth
+		edge.terrainWidth = ((impassCount == 0) and params.rampWidth) or params.cliffBotWidth
 	elseif edge.tierDiff <= 2 then
 		if edge.adjToStart then
 			edge.terrainWidth = params.rampWidth
 		elseif edge.touchBorder then
-			edge.terrainWidth = ((0.85 < random()) and params.rampWidth) or params.cliffWidth
+			edge.terrainWidth = ((random() < params.rampChance + 0.1 ) and params.rampWidth) or params.cliffBotWidth
 		else
-			edge.terrainWidth = ((0.65 < random()) and params.rampWidth) or params.cliffWidth
+			edge.terrainWidth = ((random() < params.rampChance) and params.rampWidth) or params.cliffBotWidth
 		end
 	else
 		-- Make a ramp 40% of the time.
-		edge.terrainWidth = ((0.4 < random()) and params.rampWidth) or params.cliffWidth
+		edge.terrainWidth = ((random() < params.bigDiffRampChance) and params.rampWidth) or params.cliffBotWidth
 	end
 	
 	-- Make a veh-pathable mega ramp.
-	if edge.terrainWidth >= params.rampWidth and edge.tierDiff <= 5 then
-		if edge.tierDiff >= 2 and edge.lowTier < minLandTier and random() < 0.95 then
+	if edge.terrainWidth >= params.rampWidth and edge.tierDiff >= 2 and edge.tierDiff <= 5 then
+		if edge.tierDiff >= 3 and edge.lowTier < minLandTier and random() < 0.95 then
 			edge.terrainWidth = edge.terrainWidth*edge.tierDiff*1.45
 		else
-			if edge.tierDiff >= 2 and (random() < 0.65 + ((edge.touchBorder and 0.25) or 0)) then
-				edge.terrainWidth = edge.terrainWidth*edge.tierDiff*1.45
-			elseif edge.tierDiff >= 4 and (random() < 0.4) then
+			if edge.tierDiff == 2 then
+				if (random() < 0.75*params.vehRampMult + ((edge.touchBorder and 0.25) or 0)) then
+					edge.terrainWidth = edge.terrainWidth*edge.tierDiff*1.45
+				end
+			elseif edge.tierDiff == 3 then
+				if (random() < 0.65*params.vehRampMult + ((edge.touchBorder and 0.25) or 0)) then
+					edge.terrainWidth = edge.terrainWidth*edge.tierDiff*1.45
+				end
+			elseif (random() < 0.4*params.vehRampMult) then
 				edge.terrainWidth = edge.terrainWidth*edge.tierDiff*1.45
 			end
 		end
 	end
 	
-	if edge.terrainWidth <= params.cliffWidth and not edge.adjToStart then
+	if edge.terrainWidth <= params.cliffBotWidth and not edge.adjToStart then
 		edge.cliffEdge = true
-		if random() < params.steepCliffChance then
+		if edge.tierDiff == 2 then
+			if random() < params.steepCliffChance then
+				edge.terrainWidth = params.steepCliffWidth
+			end
+		elseif random() < params.bigDiffSteepCliffChance then
 			edge.terrainWidth = params.steepCliffWidth
 		end
 		edge.terrainWidth = edge.terrainWidth*edge.tierDiff
 	end
 	
-	if (edge.terrainWidth*params.vehPassTiers/edge.tierDiff <= params.steepCliffChance) then
+	if (edge.terrainWidth*params.vehPassTiers/edge.tierDiff <= params.steepCliffWidth) then
 		edge.vehPass = false
 		edge.botPass = false
 	elseif (edge.terrainWidth*params.vehPassTiers/edge.tierDiff >= params.rampWidth) then
@@ -2151,6 +2217,13 @@ local function SetEdgeSoloTerrain(params, edge, waveFunc, waveHeightMult, tierFu
 		return
 	end
 	local edgeNbhd = edge.neighbours
+	
+	-- Exit early with some probability.
+	if params.flatIglooChances and edge.tierDiff == 0 and params.flatIglooChances[edge.lowTier] then
+		if random() < (1 - params.flatIglooChances[edge.lowTier]) then
+			return
+		end
+	end
 	
 	-- Do not block off passages
 	if edge.minEndTierCount > 1  then
@@ -2222,7 +2295,6 @@ local function SetEdgeSoloTerrain(params, edge, waveFunc, waveHeightMult, tierFu
 		end
 	end
 	
-	
 	local iglooTier = edge.lowTier + 1
 	local startScale = (random()*0.6 - 0.28)*params.iglooHeightMult
 	local sign = GetSign(startScale)
@@ -2290,6 +2362,14 @@ local function SetEdgeSoloTerrain(params, edge, waveFunc, waveHeightMult, tierFu
 	iglooLength = min(edge.length, iglooLength)
 	if iglooLength > 180 and abs(params.longIglooFlatten*startScale*effectMult) > (1 + 0.4*midFactor)*width/edge.length then
 		effectMult = effectMult*(width/edge.length)/abs(params.longIglooFlatten*startScale*effectMult)
+	end
+	
+	-- Randomly width based on tier for open space igloos
+	if params.flatIglooWidthMult and edge.tierDiff == 0 and params.flatIglooWidthMult[edge.lowTier] then
+		local factor = params.flatIglooWidthMult[edge.lowTier]
+		factor = random()*(1 - factor) + factor
+		width = width*factor
+		endWidth = endWidth*factor
 	end
 	
 	-- Stop igloos from shrinking at a faster rate than the distance travelled.
@@ -2618,7 +2698,7 @@ local function AllocateMetalSpots(cells, edges, minLandTier, startCell, params)
 	
 	local isTeamGame = Spring.Utilities.Gametype and Spring.Utilities.Gametype.isTeams and Spring.Utilities.Gametype.isTeams()
 	local isBigTeamGame = Spring.Utilities.Gametype and Spring.Utilities.Gametype.isTeams and Spring.Utilities.Gametype.isBigTeams()
-	local wantedMexes = params.baseMexesPerSide + floor(random()*2) + ((isTeamGame and 1) or 0) + ((isBigTeamGame and 2) or 0)
+	local wantedMexes = params.baseMexesPerSide + floor(random()*params.baseMexesRand) + ((isTeamGame and 1) or 0) + ((isBigTeamGame and 2) or 0)
 	
 	local minPathDiff, maxPathDiff
 	local minDistSum, maxDistSum
@@ -2706,6 +2786,7 @@ local function AllocateMetalSpots(cells, edges, minLandTier, startCell, params)
 			elseif thisCell.isMainStartPos then
 				thisCell.metalSpots = 3
 				thisCell.mexSize = params.startMexGap
+				thisCell.mexPostPlaceSize = params.startMexSize
 				wantedMexes = wantedMexes - thisCell.metalSpots
 			else
 				-- Set base allocation
@@ -3083,7 +3164,10 @@ local waitCount = 0
 local newParams = {
 	startPoint = {550, 550},
 	startPointSize = 600,
-	points = 14,
+	vorPoints = 14,
+	vorPointsRand = 0,
+	vorSizePointMult = 0,
+	vorSizePointMultRand = 0,
 	midPoints = 2,
 	midPointRadius = 850,
 	midPointSpace = 220,
@@ -3101,13 +3185,18 @@ local newParams = {
 	iglooMaxHeightTierDiffMult = 60,
 	iglooMaxHeightVar = 0.2,
 	highDiffParallelIglooChance = 0.5,
-	cliffWidth = 38,
+	cliffBotWidth = 38,
 	steepCliffWidth = 18,
 	steepCliffChance = 0.55,
+	bigDiffSteepCliffChance = 0.65,
+	rampChance = 0.65,
+	bigDiffRampChance = 0.4,
+	vehRampMult = 1,
+	impassEdgeThreshold = 600,
 	tierConst = 42,
 	tierHeight = 55,
 	vehPassTiers = 2, -- Update based on tierHeight
-	rampWidth  = 135,
+	rampWidth = 135,
 	generalWaveMod = 1,
 	waveDirectMult = 0.5,
 	bucketBase = 30,
@@ -3123,6 +3212,7 @@ local newParams = {
 	StartPositionFunc = SetStartAndModifyCellTiers_SetPoint,
 	--forceFord = true, -- To implement
 	baseMexesPerSide = 12,
+	baseMexesRand = 2,
 	forcedMidMexes = 0,
 	forcedMinMexRadius = 800,
 	emptyAreaMexes = 3,
@@ -3131,6 +3221,7 @@ local newParams = {
 	mexLoneSize = 310,
 	mexPairSize = 90,
 	startMexGap = 320, -- Gap is not size, but distance between mexes
+	startMexSize = 420,
 	doubleMexDetectGap = 680,
 	mexPairGapRequirement = 460,
 	midMexDetectGap = 300,
@@ -3147,10 +3238,43 @@ local newParams = {
 	stripeRisk = 0,
 }
 
+local function GetSpaceIncreaseParams()
+	local spaceParams = Spring.Utilities.CopyTable(newParams)
+	spaceParams.vorPoints = 7
+	spaceParams.vorPointsRand = 7
+	
+	-- New parameters
+	spaceParams.seaEdgelimit = 400
+	spaceParams.flatIglooChances = {[-1] = 0.8}
+	spaceParams.flatIglooWidthMult = {[-1] = 0.4}
+	
+	-- Divide some voronoi size parameters. Increases as randomly drawn points increses.
+	spaceParams.vorScaleAdjustPoint = 1.3
+	spaceParams.vorScaleAdjustRand = 0.05
+	
+	-- These parameters are affected by vorScaleAdjustPoint and vorScaleAdjustRand
+	spaceParams.midPoints = 2
+	spaceParams.midPointRadius = 900
+	spaceParams.midPointSpace = 260
+	spaceParams.minSpace = 230
+	spaceParams.maxSpace = 560
+	spaceParams.pointSplitRadius = 680
+	
+	spaceParams.baseMexesPerSide = 10
+	spaceParams.baseMexesRand = 3
+	spaceParams.steepCliffChance = 0.82
+	spaceParams.bigDiffSteepCliffChance = 0.94
+	spaceParams.rampChance = 0.75
+	spaceParams.bigDiffRampChance = 0.65
+	spaceParams.vehRampMult = 1.2
+	spaceParams.impassEdgeThreshold = 420
+	return spaceParams
+end
+
 local function MakeMap()
-	local params = newParams
+	local params = GetSpaceIncreaseParams()
 	local randomSeed = GetSeed()
-	--randomSeed = 7658382
+	--randomSeed = 6070879
 	math.randomseed(randomSeed)
 
 	Spring.SetGameRulesParam("typemap", "temperate2")
