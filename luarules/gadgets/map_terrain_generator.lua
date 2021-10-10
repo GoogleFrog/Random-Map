@@ -2126,7 +2126,7 @@ local function SetEdgePassability(params, edge, minLandTier)
 			local otherEdge = nbhd[i]
 			if otherEdge.tierDiff ~= 0 and otherEdge.highTier == edge.highTier then
 				matchCount = matchCount + 1
-				if not otherEdge.botPass then
+				if otherEdge.terrainWidth and not otherEdge.vehPass then
 					impassCount = impassCount + 1
 				end
 			end
@@ -2197,19 +2197,19 @@ local function SetEdgePassability(params, edge, minLandTier)
 		end
 	end
 	
-	-- Scale to edge height
-	edge.terrainWidth = edge.terrainWidth*edge.tierDiff
-	
-	if (edge.terrainWidth*params.vehPassTiers/edge.tierDiff <= params.steepCliffWidth) then
+	if (edge.terrainWidth <= params.steepCliffWidth) then
 		edge.vehPass = false
 		edge.botPass = false
-	elseif (edge.terrainWidth*params.vehPassTiers/edge.tierDiff >= params.rampWidth) then
+	elseif (edge.terrainWidth*params.vehPassTiers >= params.rampWidth) then
 		edge.vehPass = true
 		edge.botPass = true
 	else
 		edge.vehPass = false
 		edge.botPass = true
 	end
+	
+	-- Scale to edge height
+	edge.terrainWidth = edge.terrainWidth*edge.tierDiff
 end
 
 local function SetEdgeSoloTerrain(params, edge, waveFunc, waveHeightMult, tierFunc)
@@ -2852,6 +2852,8 @@ local function AllocateMetalSpots(cells, edges, minLandTier, startCell, params)
 					", Mid: " .. floor(100*thisCell.closeDistFactor) .. 
 					", Crow: " .. floor(100*thisCell.startDistFactor) .. 
 					", Alloc: " .. floor(1000*(thisCell.mexAlloc or 0)) ..
+					", Bot Dist: " .. (minBotDist or "NO BOT") ..
+					
 					" Can D: " .. canDouble)
 			end
 		end
@@ -3288,7 +3290,7 @@ end
 local function MakeMap()
 	local params = GetSpaceIncreaseParams()
 	local randomSeed = GetSeed()
-	--randomSeed = 9762916
+	randomSeed = 4146299
 	math.randomseed(randomSeed)
 
 	Spring.SetGameRulesParam("typemap", "temperate2")
