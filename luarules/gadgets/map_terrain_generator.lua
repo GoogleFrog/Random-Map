@@ -640,6 +640,17 @@ local function AveragePoints(points)
 	return {sumX/#points, sumZ/#points}
 end
 
+local function BoundPolygonVerticies(poly, boundPoint, limit)
+	poly = Spring.Utilities.CopyTable(poly)
+	for i = 1, #poly do
+		local toBound = Dist(poly[i], boundPoint)
+		if toBound > limit then
+			poly[i] = Add(boundPoint, Mult(limit/toBound, Subtract(poly[i], boundPoint)))
+		end
+	end
+	return poly
+end
+
 --------------------------------------------------------------------------------
 --------------------------------------------------------------------------------
 -- Heightmap Functions
@@ -1930,7 +1941,7 @@ local function ChangeCellTierIfHomogenousNeighbours(cell, tierConst, tierHeight,
 	return tierMin, tierMax
 end
 
-local function FillInLargeBodiesOfWater(cells, tierConst, tierHeight, minLandTier, limit, maxAverageTier, seaEdgelimit)
+local function FillInLargeBodiesOfWater(cells, tierConst, tierHeight, minLandTier, limit, maxAverageTier, seaEdgelimit, seaEdgeRepeat)
 	local thingsToDo = true
 	
 	while thingsToDo do
@@ -1940,6 +1951,9 @@ local function FillInLargeBodiesOfWater(cells, tierConst, tierHeight, minLandTie
 			if cell.tier < minLandTier and ((not cell.adjacentToBorder) or (seaEdgelimit and (DistanceToEdge(cell.site) > seaEdgelimit))) then
 				if limit < 0 then
 					SetCellTier(cell, minLandTier, tierConst, tierHeight)
+					if seaEdgeRepeat and cell.adjacentToBorder then
+						seaEdgelimit = seaEdgelimit*seaEdgeRepeat
+					end
 				else
 					local nearbyWaterCount = 0
 					local nbhd = cell.neighbours
@@ -1954,6 +1968,9 @@ local function FillInLargeBodiesOfWater(cells, tierConst, tierHeight, minLandTie
 								thingsToDo = true
 								averageTierSum = false
 								averageTierCount = false
+								if seaEdgeRepeat and cell.adjacentToBorder then
+									seaEdgelimit = seaEdgelimit*seaEdgeRepeat
+								end
 								break
 							end
 							averageTierSum = averageTierSum + otherCell.tier
@@ -1963,6 +1980,9 @@ local function FillInLargeBodiesOfWater(cells, tierConst, tierHeight, minLandTie
 					if averageTierSum and maxAverageTier and averageTierSum > maxAverageTier then
 						SetCellTier(cell, minLandTier, tierConst, tierHeight)
 						thingsToDo = true
+						if seaEdgeRepeat and cell.adjacentToBorder then
+							seaEdgelimit = seaEdgelimit*seaEdgeRepeat
+						end
 					end
 				end
 			end
@@ -2029,7 +2049,8 @@ local function GenerateCellTiers(params, cells, waveFunc)
 	if params.nonBorderSeaNeighbourLimit then
 		FillInLargeBodiesOfWater(
 			cells, tierConst, tierHeight, minLandTier,
-			params.nonBorderSeaNeighbourLimit, params.seaLimitMaxAverageTier, params.seaEdgelimit
+			params.nonBorderSeaNeighbourLimit, params.seaLimitMaxAverageTier,
+			params.seaEdgelimit, params.seaEdgelimitRepeatFactor
 		)
 	end
 	
@@ -2609,7 +2630,6 @@ local STARTBOX_WIDTH = 600
 
 local function SetStartAndModifyCellTiers_SetPoint(cells, edgesSorted, waveFunc, waveMult, minLandTier, params)
 	local startCell = GetClosestCell(params.startPoint, cells)
-	SetStartboxDataFromPolygon(GetCellVertices(startCell))
 	
 	-- Set start cell parameters
 	startCell.isMainStartPos = true
@@ -2619,6 +2639,9 @@ local function SetStartAndModifyCellTiers_SetPoint(cells, edgesSorted, waveFunc,
 	
 	startCell.mexMidpoint = GetMidpoint(startCell.averageMid, params.startPoint)
 	startCell.mirror.mexMidpoint = startCell.mexMidpoint
+	
+	-- Set start box, moved towards the corner.
+	SetStartboxDataFromPolygon(BoundPolygonVerticies(GetCellVertices(startCell), {0, 0}, Dist(startCell.mexMidpoint, {0, 0}) + 130))
 	
 	local averageTier = math.max(minLandTier, startCell.tier)
 	local averageCount = 1
@@ -2793,7 +2816,6 @@ local function AllocateMetalSpots(cells, edges, minLandTier, startCell, params)
 			thisCell.startDistFactor = (thisCell.straightDist + mirror.straightDist - minDistSum)/(maxDistSum - minDistSum)
 			thisCell.closeDistFactor = min(thisCell.straightDist, mirror.straightDist)/maxCellDist
 			
-			
 			if thisCell.tier < minLandTier then
 				thisCell.mexAlloc = 0
 			elseif thisCell.isMainStartPos then
@@ -2880,11 +2902,11 @@ local function AllocateMetalSpots(cells, edges, minLandTier, startCell, params)
 		
 		local mexAssignment = 1
 		local distBetweenMirror = mexCell.mirror and Dist(mexCell.averageMid, mexCell.mirror.averageMid)
-		if (not mexCell.adjacentToStart) and (mexCell.mirror and distBetweenMirror > 2000) and mexCell.mexAlloc and (not mexCell.unreachable) then
-			local doubleChance = max(0.05, min(0.5, mexCell.mexAlloc*0.8))*existingDoubleMult
+		if (not mexCell.adjacentToStart) and (mexCell.mirror and distBetweenMirror > 1800) and mexCell.mexAlloc and (not mexCell.unreachable) then
+			local doubleChance = max(0.1, min(0.7, mexCell.mexAlloc*0.9))*existingDoubleMult
 			if (random() < doubleChance) then
 				mexAssignment = 2
-				existingDoubleMult = existingDoubleMult*0.7
+				existingDoubleMult = existingDoubleMult*0.85
 				if PRINT_MEX_ALLOC then
 					PointEchoMirror(mexCell.site, "_____________________________________ Double")
 				end
@@ -2919,7 +2941,7 @@ local function AllocateMetalSpots(cells, edges, minLandTier, startCell, params)
 end
 
 local function GetRandomMexPos(mexes, smoothHeights, newMexSize, midMergeDist, pos, useOtherSize)
-	local placeRadius = 120
+	local placeRadius = 100
 	local placeIncrement = 2.5
 	local tries = 0
 	local midPos = {MAP_X*0.5, MAP_Z*0.5}
@@ -3260,6 +3282,7 @@ local function GetSpaceIncreaseParams()
 	
 	-- New parameters
 	spaceParams.seaEdgelimit = 400
+	spaceParams.seaEdgelimitRepeatFactor = 0.8
 	spaceParams.flatIglooChances = {[-1] = 0.8}
 	spaceParams.flatIglooWidthMult = {[-1] = 0.4}
 	
@@ -3275,8 +3298,12 @@ local function GetSpaceIncreaseParams()
 	spaceParams.maxSpace = 560
 	spaceParams.pointSplitRadius = 680
 	
-	spaceParams.baseMexesPerSide = 10
-	spaceParams.baseMexesRand = 3
+	spaceParams.baseMexesPerSide = 7
+	spaceParams.baseMexesRand = 5
+	spaceParams.mexLoneSize = 320
+	spaceParams.mexPairSize = 85
+	spaceParams.startMexSize = 450
+	
 	spaceParams.steepCliffChance = 0.82
 	spaceParams.bigDiffSteepCliffChance = 0.95
 	spaceParams.rampChance = 0.72
@@ -3290,7 +3317,7 @@ end
 local function MakeMap()
 	local params = GetSpaceIncreaseParams()
 	local randomSeed = GetSeed()
-	randomSeed = 4146299
+	--randomSeed = 4146299
 	math.randomseed(randomSeed)
 
 	Spring.SetGameRulesParam("typemap", "temperate2")
