@@ -55,7 +55,7 @@ void main()
     // ---- altitude textures ----
 
     // admix beaches
-    factor = clamp(0.1*(16.0 - abs(height) - 0.6*height),0.0,1.0);
+    factor = clamp(0.1*(15.0 - abs(height) - 0.5*height),0.0,1.0);
     gl_FragColor = mix(gl_FragColor,texture2D(tex4,coord*8.0),factor);
 
     // admix cracks

@@ -21,10 +21,10 @@ end
 local MIN_EDGE_LENGTH = 10
 local DO_SMOOTHING = true
 local DISABLE_TERRAIN_GENERATOR = false
-local RELOAD_REGEN = true
+local RELOAD_REGEN = false
 
-local DRAW_EDGES = true
-local PRINT_TIERS = true
+local DRAW_EDGES = false
+local PRINT_TIERS = false
 local PRINT_MEX_ALLOC = false
 local SHOW_WAVEMAP = false
 local TIME_MAP_GEN = false
@@ -2141,39 +2141,47 @@ local function SetEdgePassability(params, edge, minLandTier)
 		edge.terrainWidth = params.rampWidth
 	elseif edge.lowTier < minLandTier and edge.tierDiff <= 3 then
 		-- Make a ramp 95% of the time
-		edge.terrainWidth = ((random() < 0.95) and params.rampWidth) or params.cliffBotWidth 
+		edge.terrainWidth = ((random() < 0.95) and params.rampWidth) or params.cliffBotWidth
 	elseif edge.length < params.impassEdgeThreshold and ((impassCount == 0) or (matchCount*0.7 - impassCount >= 0)) and 
-			not edge.adjToStart and random() < ((edge.touchBorder and 0.3) or 0.75) then
+			(not edge.adjToStart) and random() < ((edge.touchBorder and 0.3) or 0.75) then
 		-- Make a cliff on short high tier difference edges
 		edge.terrainWidth = ((impassCount == 0) and params.rampWidth) or params.cliffBotWidth
 	elseif edge.tierDiff <= 2 then
 		if edge.adjToStart then
 			edge.terrainWidth = params.rampWidth
-		elseif edge.touchBorder then
-			edge.terrainWidth = ((random() < params.rampChance + 0.1 ) and params.rampWidth) or params.cliffBotWidth
+		elseif edge.touchBorder and impassCount == 0 then
+			edge.terrainWidth = ((random() < params.rampChance + 0.2) and params.rampWidth) or params.cliffBotWidth
 		else
 			edge.terrainWidth = ((random() < params.rampChance) and params.rampWidth) or params.cliffBotWidth
 		end
 	else
-		-- Make a ramp 40% of the time.
-		edge.terrainWidth = ((random() < params.bigDiffRampChance) and params.rampWidth) or params.cliffBotWidth
+		-- Make a ramp with reducing probability based on tier diff.
+		local chance = params.bigDiffRampChance - params.bigDiffRampReduction*(edge.tierDiff - 3)
+		edge.terrainWidth = ((random() < chance) and params.rampWidth) or params.cliffBotWidth
 	end
 	
 	-- Make a veh-pathable mega ramp.
 	if edge.terrainWidth >= params.rampWidth and edge.tierDiff >= 2 and edge.tierDiff <= 5 then
 		if edge.tierDiff >= 3 and edge.lowTier < minLandTier and random() < 0.95 then
-			edge.terrainWidth = edge.terrainWidth*edge.tierDiff*1.45
+			edge.terrainWidth = edge.terrainWidth*1.45
 		else
-			if edge.tierDiff == 2 then
-				if (random() < 0.75*params.vehRampMult + ((edge.touchBorder and 0.25) or 0)) then
-					edge.terrainWidth = edge.terrainWidth*edge.tierDiff*1.45
+			local chance = params.rampVehWidthChance and params.rampVehWidthChance[edge.tierDiff]
+			if not chance then
+				if edge.tierDiff == 2 then
+					chance = 0.75
+				elseif edge.tierDiff == 3 then
+					chance = 0.65
+				elseif edge.tierDiff == 4 then
+					chance = 0.4
+				else
+					chance = 0.1
 				end
-			elseif edge.tierDiff == 3 then
-				if (random() < 0.65*params.vehRampMult + ((edge.touchBorder and 0.25) or 0)) then
-					edge.terrainWidth = edge.terrainWidth*edge.tierDiff*1.45
-				end
-			elseif (random() < 0.4*params.vehRampMult) then
-				edge.terrainWidth = edge.terrainWidth*edge.tierDiff*1.45
+			end
+			if edge.tierDiff <= 3 and edge.touchBorder then
+				chance = chance + 0.2
+			end
+			if (random() < chance) then
+				edge.terrainWidth = edge.terrainWidth*1.45
 			end
 		end
 	end
@@ -2187,8 +2195,10 @@ local function SetEdgePassability(params, edge, minLandTier)
 		elseif random() < params.bigDiffSteepCliffChance then
 			edge.terrainWidth = params.steepCliffWidth
 		end
-		edge.terrainWidth = edge.terrainWidth*edge.tierDiff
 	end
+	
+	-- Scale to edge height
+	edge.terrainWidth = edge.terrainWidth*edge.tierDiff
 	
 	if (edge.terrainWidth*params.vehPassTiers/edge.tierDiff <= params.steepCliffWidth) then
 		edge.vehPass = false
@@ -2208,12 +2218,13 @@ local function SetEdgeSoloTerrain(params, edge, waveFunc, waveHeightMult, tierFu
 		return
 	end
 	
-	if IsEdgeAdjacentToStart(edge) then
-		--LineEchoMirror(edge, "Adj START")
-		return
-	end
+	--if IsEdgeAdjacentToStart(edge) then
+	--	LineEchoMirror(edge, "Adj START")
+	--	return
+	--end
 	
 	if edge.adjacentToBorder then
+		--LineEchoMirror(edge, "adjacentToBorder")
 		return
 	end
 	local edgeNbhd = edge.neighbours
@@ -2221,6 +2232,7 @@ local function SetEdgeSoloTerrain(params, edge, waveFunc, waveHeightMult, tierFu
 	-- Exit early with some probability.
 	if params.flatIglooChances and edge.tierDiff == 0 and params.flatIglooChances[edge.lowTier] then
 		if random() < (1 - params.flatIglooChances[edge.lowTier]) then
+			--LineEchoMirror(edge, "Rand Early Exit")
 			return
 		end
 	end
@@ -2233,7 +2245,8 @@ local function SetEdgeSoloTerrain(params, edge, waveFunc, waveHeightMult, tierFu
 			return
 		end
 		if edge.tierDiff > 1 then
-			if params.highDiffParallelIglooChance < random() then
+			if random() < params.highDiffParallelIglooChance then
+				--LineEchoMirror(edge, "highDiffParallelIglooChance")
 				return
 			end
 			-- All edges on a slope must be veh-passable to make a parallel slope igloo
@@ -3185,13 +3198,13 @@ local newParams = {
 	iglooMaxHeightTierDiffMult = 60,
 	iglooMaxHeightVar = 0.2,
 	highDiffParallelIglooChance = 0.5,
-	cliffBotWidth = 38,
+	cliffBotWidth = 54,
 	steepCliffWidth = 18,
 	steepCliffChance = 0.55,
 	bigDiffSteepCliffChance = 0.65,
 	rampChance = 0.65,
 	bigDiffRampChance = 0.4,
-	vehRampMult = 1,
+	bigDiffRampReduction = 0.1,
 	impassEdgeThreshold = 600,
 	tierConst = 42,
 	tierHeight = 55,
@@ -3266,15 +3279,16 @@ local function GetSpaceIncreaseParams()
 	spaceParams.bigDiffSteepCliffChance = 0.94
 	spaceParams.rampChance = 0.75
 	spaceParams.bigDiffRampChance = 0.65
-	spaceParams.vehRampMult = 1.2
-	spaceParams.impassEdgeThreshold = 420
+	spaceParams.bigDiffRampReduction = 0.18
+	spaceParams.rampVehWidthChance = {[2] = 0.95, [2] = 0.88, [4] = 0.55}
+	spaceParams.impassEdgeThreshold = 380
 	return spaceParams
 end
 
 local function MakeMap()
 	local params = GetSpaceIncreaseParams()
 	local randomSeed = GetSeed()
-	--randomSeed = 6070879
+	--randomSeed = 9762916
 	math.randomseed(randomSeed)
 
 	Spring.SetGameRulesParam("typemap", "temperate2")
