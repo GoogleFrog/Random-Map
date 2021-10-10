@@ -3199,7 +3199,7 @@ local newParams = {
 	iglooMaxHeightVar = 0.2,
 	highDiffParallelIglooChance = 0.5,
 	cliffBotWidth = 54,
-	steepCliffWidth = 18,
+	steepCliffWidth = 15,
 	steepCliffChance = 0.55,
 	bigDiffSteepCliffChance = 0.65,
 	rampChance = 0.65,
@@ -3276,9 +3276,9 @@ local function GetSpaceIncreaseParams()
 	spaceParams.baseMexesPerSide = 10
 	spaceParams.baseMexesRand = 3
 	spaceParams.steepCliffChance = 0.82
-	spaceParams.bigDiffSteepCliffChance = 0.94
-	spaceParams.rampChance = 0.75
-	spaceParams.bigDiffRampChance = 0.65
+	spaceParams.bigDiffSteepCliffChance = 0.95
+	spaceParams.rampChance = 0.72
+	spaceParams.bigDiffRampChance = 0.62
 	spaceParams.bigDiffRampReduction = 0.18
 	spaceParams.rampVehWidthChance = {[2] = 0.95, [2] = 0.88, [4] = 0.55}
 	spaceParams.impassEdgeThreshold = 380
