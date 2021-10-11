@@ -684,6 +684,10 @@ local function SufficientlyFlat(pos, heights, checkSquare, flatRequirement, heig
 		Add(pos, {-checkSquare, -checkSquare}),
 		Add(pos, {checkSquare, -checkSquare}),
 		Add(pos, {-checkSquare, checkSquare}),
+		Add(pos, {checkSquare*0.3, checkSquare*0.3}),
+		Add(pos, {-checkSquare*0.3, -checkSquare*0.3}),
+		Add(pos, {checkSquare*0.3, -checkSquare*0.3}),
+		Add(pos, {-checkSquare*0.3, checkSquare*0.3}),
 	}
 	for i = 1, #toCheck do
 		local height = GetHeight(heights, toCheck[i])
@@ -2718,6 +2722,29 @@ local function HasTierDiff(edge)
 	return (edge.tierDiff ~= 0)
 end
 
+local function SetBigNbhdNoDouble(mexCell, nbhdDist)
+	local visited = {[mexCell.index] = true}
+	local toExpand = {mexCell}
+	for i = 1, nbhdDist do
+		local oldToExpand = Spring.Utilities.CopyTable(toExpand, false)
+		toExpand = {}
+		for j = 1, #oldToExpand do
+			local nbhd = oldToExpand[j].neighbours
+			for k = 1, #nbhd do
+				local cell = nbhd[k]
+				if cell.mirror and not cell.firstMirror then
+					cell = cell.mirror
+				end
+				if not visited[cell.index] then
+					cell.noDouble = true
+					toExpand[#toExpand + 1] = cell
+					visited[cell.index] = true
+				end
+			end
+		end
+	end
+end
+
 local function ReduceMexAllocation(cell, totalMexAlloc, allocFactor)
 	cell = (cell.firstMirror and cell) or cell.mirror
 	if not cell.mexAlloc then
@@ -2849,7 +2876,7 @@ local function AllocateMetalSpots(cells, edges, minLandTier, startCell, params)
 					thisCell.mexAlloc = thisCell.mexAlloc + 0.15
 				end
 				if thisCell.adjacentToCorner then
-					thisCell.mexAlloc = thisCell.mexAlloc - 0.4
+					thisCell.mexAlloc = thisCell.mexAlloc - 0.55
 				end
 				-- Discourage spider-only mexes
 				if thisCell.unreachable then
@@ -2900,21 +2927,27 @@ local function AllocateMetalSpots(cells, edges, minLandTier, startCell, params)
 			end
 		end
 		
+		if mexCell.unreachable or mexCell.adjacentToStart then
+			mexCell.noDouble = true
+		end
+		
 		local mexAssignment = 1
 		local distBetweenMirror = mexCell.mirror and Dist(mexCell.averageMid, mexCell.mirror.averageMid)
-		if (not mexCell.adjacentToStart) and (mexCell.mirror and distBetweenMirror > 1800) and mexCell.mexAlloc and (not mexCell.unreachable) then
-			local doubleChance = max(0.1, min(0.7, mexCell.mexAlloc*0.9))*existingDoubleMult
+		if (not mexCell.noDouble) and (mexCell.mirror and distBetweenMirror > 1800) and mexCell.mexAlloc then
+			local doubleChance = max(0.15, min(0.75, mexCell.mexAlloc))*existingDoubleMult
 			if (random() < doubleChance) then
 				mexAssignment = 2
-				existingDoubleMult = existingDoubleMult*0.85
+				existingDoubleMult = existingDoubleMult*0.8
 				if PRINT_MEX_ALLOC then
-					PointEchoMirror(mexCell.site, "_____________________________________ Double")
+					PointEchoMirror(Add(mexCell.site, {0, 60}), "Have Double " .. doubleChance)
 				end
+			elseif PRINT_MEX_ALLOC then
+				PointEchoMirror(Add(mexCell.site, {0, 60}), "NO DOUBLE " .. doubleChance)
 			end
 		end
 		
 		totalMexAlloc = ReduceMexAllocation(mexCell, totalMexAlloc, 0)
-		local neighbourFactor = 0.3 + 0.3*mexAssignment
+		local neighbourFactor = 0.5 + 0.22*mexAssignment
 		for i = 1, #mexCell.neighbours do
 			totalMexAlloc = ReduceMexAllocation(mexCell.neighbours[i], totalMexAlloc, neighbourFactor)
 		end
@@ -2922,7 +2955,8 @@ local function AllocateMetalSpots(cells, edges, minLandTier, startCell, params)
 		if mexAssignment == 2 then
 			mexCell.mexSize = params.mexPairSize
 			mexCell.mexFallbackSize = params.mexPairGapRequirement
-			mexCell.mexPostPlaceSize = params.mexPairGapRequirement
+			mexCell.mexPostPlaceSize = params.mexPairSizePostSize or params.mexPairGapRequirement
+			SetBigNbhdNoDouble(mexCell, 2)
 		elseif (mexCell.mirror and distBetweenMirror > 2000) then
 			mexCell.mexSize = ((random() > 0.1 and params.mexLoneSize) or params.mexPairSize) -- Whether to allow grouped mexes.
 		else
@@ -2942,7 +2976,7 @@ end
 
 local function GetRandomMexPos(mexes, smoothHeights, newMexSize, midMergeDist, pos, useOtherSize)
 	local placeRadius = 100
-	local placeIncrement = 2.5
+	local placeIncrement = 3.2
 	local tries = 0
 	local midPos = {MAP_X*0.5, MAP_Z*0.5}
 	while tries < 350 do
@@ -3020,9 +3054,15 @@ local function PlaceCellMexes(cell, smoothHeights, params, mexes)
 		end
 	end
 	
-	if cell.mexPostPlaceSize then
+	if cell.mexPostPlaceSize and placed then
 		for i = 1, #placed do
-			mexes[i].size = cell.mexPostPlaceSize
+			mexes[placed[i]].size = cell.mexPostPlaceSize
+		end
+	end
+	
+	if PRINT_MEX_ALLOC and placed then
+		for i = 1, #placed do
+			PointEcho(mexes[placed[i]], mexes[placed[i]].size)
 		end
 	end
 end
@@ -3034,16 +3074,21 @@ local function PlaceMetalSpots(cells, startCell, smoothHeights, params)
 		PlaceCellMexes(startCell, smoothHeights, params, mexes)
 	end
 	
-	-- Add predefined mexes to empty areas.
-	for i = 1, #params.predefinedMexes do
-		PlaceMex(params, mexes, smoothHeights, 280, params.predefinedMexes[i])
-	end
-	
 	-- Add cell double mexes
 	for i = 1, #cells do
 		local thisCell = cells[i]
 		if (thisCell.metalSpots or 0) > 1 and thisCell.firstMirror and not thisCell.isMainStartPos then
 			PlaceCellMexes(thisCell, smoothHeights, params, mexes)
+		end
+	end
+	
+	-- Add predefined mexes to empty areas.
+	for i = 1, #params.predefinedMexes do
+		local placed = PlaceMex(params, mexes, smoothHeights, params.predefinedMexSize or 280, params.predefinedMexes[i])
+		if PRINT_MEX_ALLOC and placed then
+			for i = 1, #placed do
+				PointEcho(mexes[placed[i]], mexes[placed[i]].size)
+			end
 		end
 	end
 	
@@ -3223,7 +3268,7 @@ local newParams = {
 	iglooMaxHeightVar = 0.2,
 	highDiffParallelIglooChance = 0.5,
 	cliffBotWidth = 54,
-	steepCliffWidth = 15,
+	steepCliffWidth = 12,
 	steepCliffChance = 0.55,
 	bigDiffSteepCliffChance = 0.65,
 	rampChance = 0.65,
@@ -3300,8 +3345,10 @@ local function GetSpaceIncreaseParams()
 	
 	spaceParams.baseMexesPerSide = 7
 	spaceParams.baseMexesRand = 5
+	spaceParams.predefinedMexSize = 330
 	spaceParams.mexLoneSize = 320
-	spaceParams.mexPairSize = 85
+	spaceParams.mexPairSize = 90
+	spaceParams.mexPairSizePostSize = 640
 	spaceParams.startMexSize = 450
 	
 	spaceParams.steepCliffChance = 0.82
@@ -3317,7 +3364,7 @@ end
 local function MakeMap()
 	local params = GetSpaceIncreaseParams()
 	local randomSeed = GetSeed()
-	--randomSeed = 4146299
+	--randomSeed = 4163813
 	math.randomseed(randomSeed)
 
 	Spring.SetGameRulesParam("typemap", "temperate2")
