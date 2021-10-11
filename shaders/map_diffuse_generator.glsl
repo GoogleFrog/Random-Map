@@ -71,7 +71,7 @@ void main()
     gl_FragColor = mix(mix(gl_FragColor,texture2D(tex9,coord*min(0.8, 0.785 + 2.5*slope)),factor),texture2D(tex5,coord*0.65),0.1*factor);
 
     // admix highlands
-    factor = smoothstep(255.0,290.0,height) * (1.0-slope);
+    factor = smoothstep(255.0,360.0,height) * (1.0-slope);
     gl_FragColor = mix(gl_FragColor,texture2D(tex6,coord*min(1.02, 1.0 + 0.001*slope)),factor);
 
     // ---- slope textures ----
