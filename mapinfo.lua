@@ -37,7 +37,6 @@ local mapinfo = {
 	},
 
 	resources = {
-		splatDistrTex = "splatrep.png",
 		splatDetailTex = "Rock.png",
 		splatDetailNormalDiffuseAlpha = 1,
 		splatDetailNormalTex = {
