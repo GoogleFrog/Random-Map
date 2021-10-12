@@ -22,7 +22,7 @@ const float vehCliff = 0.4546;
 const float botCliff = 0.8065;
 
 const float softCliffMax = hardCliffMin;
-const float bandingMin = 0.14;
+const float bandingMin = 0.12;
 const float vehCliffMinus = 0.24;
 const float vehCliffEpsilon = 0.492;
 const float vehCliffPlus = 0.62;

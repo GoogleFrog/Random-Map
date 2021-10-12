@@ -399,6 +399,7 @@ local function SetMapTexture(texturePool, mapTexX, mapTexZ, topTexX, topTexZ, to
 		Spring.SetMapShadingTexture("$minimap", texOut)
 		usedminimap = texOut
 		Spring.Echo("Applied grass and minimap textures")
+		
 		gl.DeleteTextureFBO(fulltex)
 		
 		if texOut and texOut ~= usedgrass and texOut ~= usedminimap then

@@ -24,6 +24,7 @@ local mapinfo = {
 		minheight = -105,
 		maxheight = 280,
 		smtFileName0 = "RandomBaseMap10.smt",
+		minimapTex = "minimap.png",
 	},
 
 	sound = {

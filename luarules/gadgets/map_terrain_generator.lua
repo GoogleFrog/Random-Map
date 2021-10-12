@@ -24,8 +24,9 @@ local DISABLE_TERRAIN_GENERATOR = false
 local RELOAD_REGEN = false
 
 local DRAW_EDGES = false
-local PRINT_TIERS = false
 local PRINT_MEX_ALLOC = false
+local PRINT_TIERS = false
+local PRINT_CURVES = false
 local SHOW_WAVEMAP = false
 local TIME_MAP_GEN = false
 
@@ -751,17 +752,21 @@ end
 
 local HIT_EDGE_CURVE = {}
 for i = pi, pi*3/2 + pi/(4*POINT_COUNT), pi/(2*POINT_COUNT) do
-	local prop = math.min(1, (i - pi)/(pi/2 + pi/(4*POINT_COUNT)))
+	local prop = math.min(1, (i - pi)/(pi/2))
 	HIT_EDGE_CURVE[#HIT_EDGE_CURVE + 1] = {0.5 + (1 - prop)*cos(i) + prop*0.5, 1 + sin(i)}
 end
 
 local HIT_EDGE_STRAIGHT = {}
 for i = pi, pi*3/2 + pi/(4*POINT_COUNT), pi/(2*POINT_COUNT) do
-	local prop = math.min(1, (i - pi)/(pi/2 + pi/(4*POINT_COUNT)))
+	local prop = math.min(1, (i - pi)/(pi/2))
 	HIT_EDGE_STRAIGHT[#HIT_EDGE_STRAIGHT + 1] = {0.05 + (1 - prop)*cos(i) + prop*0.95, 1 + sin(i)}
 end
 
-local STRAIGHT_EDGE_POINTS = 18
+if PRINT_CURVES then
+	Spring.Utilities.TableEcho(CIRCLE_POINTS, "CIRCLE_POINTS")
+	Spring.Utilities.TableEcho(HIT_EDGE_CURVE, "HIT_EDGE_CURVE")
+	Spring.Utilities.TableEcho(HIT_EDGE_STRAIGHT, "HIT_EDGE_STRAIGHT")
+end
 
 --------------------------------------------------------------------------------
 --------------------------------------------------------------------------------
@@ -1793,6 +1798,10 @@ local function GetCurveHeightModifiers(tierFlood, cellTier, otherTier, heightMod
 		ApplyLineDistanceFunc(
 			tierFlood, cellTier, otherTier, heightMod, false, curve[i], curve[i + 1],
 			MakeEdgeSlope, heightParams, startWidth, endWidth, startDist, endDist, otherClockwise, false, END_FLATTENING)
+	end
+	if PRINT_CURVES then
+		PointEcho(curve[1], "START")
+		PointEcho(curve[#curve], "END")
 	end
 end
 
@@ -3349,7 +3358,7 @@ local function GetSpaceIncreaseParams()
 	spaceParams.mexLoneSize = 320
 	spaceParams.mexPairSize = 90
 	spaceParams.mexPairSizePostSize = 640
-	spaceParams.startMexSize = 450
+	spaceParams.startMexSize = 530
 	
 	spaceParams.steepCliffChance = 0.82
 	spaceParams.bigDiffSteepCliffChance = 0.95
@@ -3364,7 +3373,7 @@ end
 local function MakeMap()
 	local params = GetSpaceIncreaseParams()
 	local randomSeed = GetSeed()
-	--randomSeed = 4163813
+	--randomSeed = 4673854
 	math.randomseed(randomSeed)
 
 	Spring.SetGameRulesParam("typemap", "temperate2")
