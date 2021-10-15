@@ -2768,9 +2768,12 @@ local function AllocateMetalSpots(cells, edges, minLandTier, startCell, params)
 	GetPathDistances(cells, startCell, "landBotDist", false, true, true)
 	GetStraightDistances(cells, startCell, "straightDist")
 	
-	local isTeamGame = Spring.Utilities.Gametype and Spring.Utilities.Gametype.isTeams and Spring.Utilities.Gametype.isTeams()
-	local isBigTeamGame = Spring.Utilities.Gametype and Spring.Utilities.Gametype.isTeams and Spring.Utilities.Gametype.isBigTeams()
-	local wantedMexes = params.baseMexesPerSide + floor(random()*params.baseMexesRand) + ((isTeamGame and 1) or 0) + ((isBigTeamGame and 2) or 0)
+	local wantedMexes = params.baseMexesPerSide + floor(random()*params.baseMexesRand) 
+	
+	-- Don't add mexes based on game, to allow for maps of the same seed to come out the same.
+	--local isTeamGame = Spring.Utilities.Gametype and Spring.Utilities.Gametype.isTeams and Spring.Utilities.Gametype.isTeams()
+	--local isBigTeamGame = Spring.Utilities.Gametype and Spring.Utilities.Gametype.isTeams and Spring.Utilities.Gametype.isBigTeams()
+	--wantedMexes = wantedMexes + ((isTeamGame and 1) or 0) + ((isBigTeamGame and 2) or 0)
 	
 	local minPathDiff, maxPathDiff
 	local minDistSum, maxDistSum
@@ -3353,7 +3356,7 @@ local function GetSpaceIncreaseParams()
 	spaceParams.pointSplitRadius = 660
 	
 	spaceParams.baseMexesPerSide = 7
-	spaceParams.baseMexesRand = 5
+	spaceParams.baseMexesRand = 6
 	spaceParams.predefinedMexSize = 330
 	spaceParams.mexLoneSize = 320
 	spaceParams.mexPairSize = 90
