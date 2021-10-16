@@ -2768,12 +2768,25 @@ local function AllocateMetalSpots(cells, edges, minLandTier, startCell, params)
 	GetPathDistances(cells, startCell, "landBotDist", false, true, true)
 	GetStraightDistances(cells, startCell, "straightDist")
 	
-	local wantedMexes = params.baseMexesPerSide + floor(random()*params.baseMexesRand) 
+	local wantedMexes = params.baseMexesPerSide + floor(random()*params.baseMexesRand)
+	local wantedMegaMexes = 0
 	
-	-- Don't add mexes based on game, to allow for maps of the same seed to come out the same.
-	--local isTeamGame = Spring.Utilities.Gametype and Spring.Utilities.Gametype.isTeams and Spring.Utilities.Gametype.isTeams()
-	--local isBigTeamGame = Spring.Utilities.Gametype and Spring.Utilities.Gametype.isTeams and Spring.Utilities.Gametype.isBigTeams()
-	--wantedMexes = wantedMexes + ((isTeamGame and 1) or 0) + ((isBigTeamGame and 2) or 0)
+	-- Add mega mexes for team games to avoid changing mex layout.
+	-- This code has to be very careful to not use up a different number of random numbers depending on game size.
+	local isTeamGame = Spring.Utilities.Gametype and Spring.Utilities.Gametype.isTeams and Spring.Utilities.Gametype.isTeams()
+	local isBigTeamGame = Spring.Utilities.Gametype and Spring.Utilities.Gametype.isTeams and Spring.Utilities.Gametype.isBigTeams()
+	if random() < 0.1 then
+		wantedMegaMexes = wantedMegaMexes + ((isBigTeamGame and 1) or 0)
+	end
+	if random() < 0.5 and isTeamGame then
+		wantedMegaMexes = wantedMegaMexes + ((isTeamGame and 1) or 0)
+	end
+	if random() < 0.5 and isBigTeamGame then
+		wantedMegaMexes = wantedMegaMexes + ((isBigTeamGame and 1) or 0)
+	end
+	if random() < 0.95 and isBigTeamGame then
+		wantedMegaMexes = wantedMegaMexes + ((isBigTeamGame and 1) or 0)
+	end
 	
 	local minPathDiff, maxPathDiff
 	local minDistSum, maxDistSum
@@ -2971,6 +2984,10 @@ local function AllocateMetalSpots(cells, edges, minLandTier, startCell, params)
 			SetBigNbhdNoDouble(mexCell, 2)
 		elseif (mexCell.mirror and distBetweenMirror > 2000) then
 			mexCell.mexSize = ((random() > 0.1 and params.mexLoneSize) or params.mexPairSize) -- Whether to allow grouped mexes.
+			if wantedMegaMexes > 0 then
+				mexCell.hasMegaMex = true
+				wantedMegaMexes = wantedMegaMexes - 1
+			end
 		else
 			local dist = (mexCell.mirror and distBetweenMirror) or 0
 			mexCell.mexSize = params.mexLoneSize + 2*params.mexPairSize*(1 - dist/2000)
@@ -3013,7 +3030,17 @@ local function GetRandomMexPos(mexes, smoothHeights, newMexSize, midMergeDist, p
 	return false
 end
 
-local function AddToMexPosList(params, mexes, pos, size, mexValue)
+local function GetMexMetal(params, isMegaMex)
+	local metalMult = 1
+	if Spring.Utilities.Gametype and Spring.Utilities.Gametype.isTeams and Spring.Utilities.Gametype.isBigTeams() then
+		metalMult = params.bigTeamMetalMult
+	elseif Spring.Utilities.Gametype and Spring.Utilities.Gametype.isTeams and Spring.Utilities.Gametype.isTeams() then
+		metalMult = params.smallTeamMetalMult
+	end
+	return metalMult*((isMegaMex and params.megaMexValue) or params.mexValue)
+end
+
+local function AddToMexPosList(params, mexes, pos, size, isMegaMex)
 	local closeID, closeDist = GetClosestPoint(pos, mexes)
 	if closeDist and closeDist < params.doubleMexDetectGap then
 		size = max(params.doubleMexSize, size)
@@ -3025,11 +3052,11 @@ local function AddToMexPosList(params, mexes, pos, size, mexValue)
 	local index = #mexes + 1
 	mexes[index] = pos
 	GG.mapgen_mexList = GG.mapgen_mexList or {}
-	GG.mapgen_mexList[#GG.mapgen_mexList + 1] = {x = pos[1], z = pos[2], metal = mexValue}
+	GG.mapgen_mexList[#GG.mapgen_mexList + 1] = {x = pos[1], z = pos[2], metal = GetMexMetal(params, isMegaMex)}
 	return index
 end
 
-local function PlaceMex(params, mexes, smoothHeights, newMexSize, pos, isStartCell)
+local function PlaceMex(params, mexes, smoothHeights, newMexSize, pos, isStartCell, isMegaMex)
 	local mexPos = GetRandomMexPos(mexes, smoothHeights, newMexSize, params.midMexDetectGap*0.5, pos, not isStartCell)
 	if not mexPos then
 		return
@@ -3038,10 +3065,10 @@ local function PlaceMex(params, mexes, smoothHeights, newMexSize, pos, isStartCe
 	
 	local placed = {}
 	if Dist(mexPos, mirrorMexPos) > params.midMexDetectGap then
-		placed[#placed + 1] = AddToMexPosList(params, mexes, mexPos, newMexSize)
-		placed[#placed + 1] = AddToMexPosList(params, mexes, mirrorMexPos, newMexSize)
+		placed[#placed + 1] = AddToMexPosList(params, mexes, mexPos, newMexSize, isMegaMex)
+		placed[#placed + 1] = AddToMexPosList(params, mexes, mirrorMexPos, newMexSize, isMegaMex)
 	else
-		placed[#placed + 1] = AddToMexPosList(params, mexes, {MID_X, MID_Z}, newMexSize, mexValue)
+		placed[#placed + 1] = AddToMexPosList(params, mexes, {MID_X, MID_Z}, newMexSize, mexValue, isMegaMex)
 	end
 	return placed
 end
@@ -3058,7 +3085,7 @@ local function PlaceCellMexes(cell, smoothHeights, params, mexes)
 	
 	local placed = {}
 	for i = 1, toPlace do
-		local newPlaced = PlaceMex(params, mexes, smoothHeights, cell.mexSize, cell.mexMidpoint or cell.averageMid, cell.isMainStartPos)
+		local newPlaced = PlaceMex(params, mexes, smoothHeights, cell.mexSize, cell.mexMidpoint or cell.averageMid, cell.isMainStartPos, cell.hasMegaMex)
 		if newPlaced then
 			for j = 1, #newPlaced do
 				placed[#placed + 1] = newPlaced[j]
@@ -3096,7 +3123,7 @@ local function PlaceMetalSpots(cells, startCell, smoothHeights, params)
 	
 	-- Add predefined mexes to empty areas.
 	for i = 1, #params.predefinedMexes do
-		local placed = PlaceMex(params, mexes, smoothHeights, params.predefinedMexSize or 280, params.predefinedMexes[i])
+		local placed = PlaceMex(params, mexes, smoothHeights, params.predefinedMexSize or 280, params.predefinedMexes[i], false)
 		if PRINT_MEX_ALLOC and placed then
 			for i = 1, #placed do
 				PointEcho(mexes[placed[i]], mexes[placed[i]].size)
@@ -3116,7 +3143,7 @@ local function PlaceMetalSpots(cells, startCell, smoothHeights, params)
 	for i = 1, params.emptyAreaMexes do
 		local emptyAreaMexRadius = params.emptyAreaMexRadiusMin + random()*params.emptyAreaMexRadiusRand
 		local point = GetRandomMapCoord(emptyAreaMexRadius, mexes, 120, false, 1.1)
-		PlaceMex(params, mexes, smoothHeights, emptyAreaMexRadius*0.5 - 80, point)
+		PlaceMex(params, mexes, smoothHeights, emptyAreaMexRadius*0.5 - 80, point, false)
 	end
 end
 
@@ -3330,6 +3357,11 @@ local newParams = {
 	treeMinTier = 1,
 	treeMaxTier = 2,
 	stripeRisk = 0,
+	
+	mexValue = 2,
+	megaMexValue = 3.2,
+	smallTeamMetalMult = 1.05,
+	bigTeamMetalMult = 1.1,
 }
 
 local function GetSpaceIncreaseParams()
@@ -3356,7 +3388,7 @@ local function GetSpaceIncreaseParams()
 	spaceParams.pointSplitRadius = 660
 	
 	spaceParams.baseMexesPerSide = 7
-	spaceParams.baseMexesRand = 6
+	spaceParams.baseMexesRand = 5
 	spaceParams.predefinedMexSize = 330
 	spaceParams.mexLoneSize = 320
 	spaceParams.mexPairSize = 90
