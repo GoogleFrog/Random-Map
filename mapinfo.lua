@@ -8,7 +8,7 @@ local mapinfo = {
 	shortname   = "rplat",
 	description = "A sometimes craggy, sometimes plateauy random map, now with igloos (10x10)",
 	author      = "GoogleFrog",
-	version     = "v0.85",
+	version     = "v1.0",
 	modtype     = 3, --// 1=primary, 0=hidden, 3=map
 
 	maphardness     = 140,
