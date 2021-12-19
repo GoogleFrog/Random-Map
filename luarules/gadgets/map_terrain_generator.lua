@@ -605,6 +605,8 @@ local function GetAnticlockwiseIntAndEdge(edge, cellIndex)
 			end
 		end
 	end
+	-- Code reaches here if the edge neighbourhood systems are not set up correctly.
+	-- This has been caused by line endpoints being off by up to 1.7 elmos.
 end
 
 local function AreaOfPolygon(vertices)
