@@ -19,6 +19,7 @@ end
 -- Configuration
 
 local MIN_EDGE_LENGTH = 10
+local SAME_POINT_LEEWAY = 2.5
 local DO_SMOOTHING = true
 local DISABLE_TERRAIN_GENERATOR = false
 local RELOAD_REGEN = false
@@ -130,6 +131,12 @@ end
 
 local function GetSign(x)
 	return ((x > 0) and 1) or -1
+end
+
+local function MaxDiffDist(p1, p2)
+	local xDist = (p1[1] < p2[1] and p2[1] - p1[1]) or p1[1] - p2[1]
+	local zDist = (p1[2] < p2[2] and p2[2] - p1[2]) or p1[2] - p2[2]
+	return (xDist > zDist and xDist) or zDist
 end
 
 local function DistSq(p1, p2)
@@ -308,8 +315,7 @@ local function GetRandomSign()
 end
 
 local function SamePoint(p1, p2, acc)
-	acc = acc or 1
-	return ((p1[1] - p2[1] < acc) and (p2[1] - p1[1] < acc)) and ((p1[2] - p2[2] < acc) and (p2[2] - p1[2] < acc))
+	return MaxDiffDist(p1, p2) < (acc or SAME_POINT_LEEWAY)
 end
 
 local function SameLine(l1, l2)
@@ -599,6 +605,8 @@ local function GetAnticlockwiseIntAndEdge(edge, cellIndex)
 			end
 		end
 	end
+	-- Code reaches here if the edge neighbourhood systems are not set up correctly.
+	-- This has been caused by line endpoints being off by up to 1.7 elmos.
 end
 
 local function AreaOfPolygon(vertices)
@@ -3077,7 +3085,7 @@ local function PlaceCellMexes(cell, smoothHeights, params, mexes)
 	local toPlace = cell.metalSpots
 	if cell.metalSpots > 1 and cell.mexFallbackSize then
 		local closeID, closeDist = GetClosestPoint(cell.mexMidpoint or cell.averageMid, mexes, true)
-		if closeDist < cell.mexFallbackSize then
+		if (not closeDist) or closeDist < cell.mexFallbackSize then
 			cell.mexSize = cell.mexFallbackSize
 			toPlace = 1
 		end
@@ -3408,7 +3416,7 @@ end
 local function MakeMap()
 	local params = GetSpaceIncreaseParams()
 	local randomSeed = GetSeed()
-	--randomSeed = 4673854
+	--randomSeed = 6576411
 	math.randomseed(randomSeed)
 
 	Spring.SetGameRulesParam("typemap", "temperate2")
