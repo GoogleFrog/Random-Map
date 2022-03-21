@@ -38,19 +38,17 @@ local mapinfo = {
 	},
 
 	resources = {
-		splatDetailTex = "Rock.png",
+		splatDetailTex = "Zsplat.dds",
 		splatDetailNormalDiffuseAlpha = 1,
-		splatDetailNormalTex = {
-			"grass.tga", -- Grass
-			"rock.tga", -- Rocky grass
-			"sand.tga", -- shallowSand
-			"volcano.tga", -- Depth Sand
-			alpha = true,
-		},
+		splatDetailNormalTex1 = "grass_91_highpass_dnts.tga",
+		splatDetailNormalTex2 = "rock_288_highpass_dnts.tga", 
+		splatDetailNormalTex3 = "testsand.tga",
+		splatDetailNormalTex4 = "pebbles_283_highpass_dnts.tga",
+		splatDistrTex = "fake.png",  		
 	},
-	splats = {
-		TexScales = { 0.00471, 0.00097, 0.0013, 0.0027 },
-		TexMults = { 0.5, 0.31, 0.5, 0.65 },
+  splats = {
+	texScales = { 0.004, 0.0025, .003, .005},
+	texMults  = { 0.3,    0.75,     0.25,   0.45},
 	},
 
 	atmosphere = {
@@ -85,8 +83,8 @@ local mapinfo = {
 		sunDir        = {0.35, 1.0, 0.3, 1e9},
 
 		--// unit & ground lighting
-		["groundDiffuseColor"]= {0.35, 0.42, 0.41, 1},
-		["groundAmbientColor"]= {0.42, 0.45, 0.365, 1},
+		["groundDiffuseColor"]= {0.8, 0.8, 0.8, 1},
+		["groundAmbientColor"]= {0.42, 0.42, 0.42, 1},
 		["groundSpecularColor"]= {0.1, 0.1, 0.1, 1},
 		groundShadowDensity = 0.4,
 		unitAmbientColor    = {0.55, 0.55, 0.45},
