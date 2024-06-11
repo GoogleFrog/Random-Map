@@ -879,6 +879,9 @@ local function BoundExtendedVoronoiToMapEdge(cells)
 			local intersections = false
 			for k = #thisCell.edges, 1, -1 do
 				local thisEdge = thisCell.edges[k]
+				if not (thisEdge[1] and thisEdge[2]) then
+					return false -- Discard bad seed
+				end
 				local int = GetBoundedLineIntersection(borderLine, thisEdge)
 				if int then
 					if GetBoundedLineIntersection(borderLine, {thisEdge[1], thisCell.site}) then
