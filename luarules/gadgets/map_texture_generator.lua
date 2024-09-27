@@ -139,7 +139,7 @@ local function SetMapTexture(texturePool, mapTexX, mapTexZ, topTexX, topTexZ, to
 	)
 
 	-- specular probably doesn't need to be entirely full reso tbf
-	local spectex = gl.CreateTexture(MAP_X, MAP_Z,
+	local spectex = gl.CreateTexture(MAP_X/4, MAP_Z/4,
 		{
 			border = false,
 			min_filter = GL.LINEAR,
@@ -150,8 +150,7 @@ local function SetMapTexture(texturePool, mapTexX, mapTexZ, topTexX, topTexZ, to
 		}
 	)
 	
-	Spring.Echo("Generated blank fulltex")
-	local topSplattex = USE_SHADING_TEXTURE and gl.CreateTexture(MAP_X, MAP_Z,
+	local splattex = USE_SHADING_TEXTURE and gl.CreateTexture(MAP_X/16, MAP_Z/16,
 		{
 			format = GL_RGBA32F,
 			border = false,
@@ -161,7 +160,9 @@ local function SetMapTexture(texturePool, mapTexX, mapTexZ, topTexX, topTexZ, to
 			wrap_t = GL.CLAMP_TO_EDGE,
 			fbo = true,
 		}
-	)
+	)	
+	
+	Spring.Echo("Generated blank fulltex")
 	Spring.Echo("Generated blank splattex")
 
 	local vertSrc = [[
@@ -173,6 +174,7 @@ local function SetMapTexture(texturePool, mapTexX, mapTexZ, topTexX, topTexZ, to
 	  ]]
 
 	local fragSrc = VFS.LoadFile("shaders/map_diffuse_generator.glsl");
+	local fragSrc_dnts = VFS.LoadFile("shaders/dnts.glsl");
 
 	local diffuseShader = glCreateShader({
 		vertex = vertSrc,
@@ -190,11 +192,22 @@ local function SetMapTexture(texturePool, mapTexX, mapTexZ, topTexX, topTexZ, to
 			tex9 = 9,
 			tex10 = 10,
 			tex11 = 11,
+			tex12 = 12,
+			tex13 = 13,
+		},
+	})
+	
+	local dntsShader = glCreateShader({
+		vertex = vertSrc,
+		fragment = fragSrc_dnts,
+		uniformInt = {
+			tex0 = 0,
+			tex1 = 1,
 		},
 	})
 
 	Spring.Echo(gl.GetShaderLog())
-	if(diffuseShader) then
+	if(diffuseShader and dntsShader) then
 		Spring.Echo("Diffuse shader created");
 	else
 		Spring.Echo("SHADER ERROR");
@@ -205,6 +218,7 @@ local function SetMapTexture(texturePool, mapTexX, mapTexZ, topTexX, topTexZ, to
 	end
 
 	local function DrawLoop()
+		gl.Blending(false)
 		local loopCount = 0
 		glColor(1, 1, 1, 1)
 		local ago = Spring.GetTimer()
@@ -237,6 +251,10 @@ local function SetMapTexture(texturePool, mapTexX, mapTexZ, topTexX, topTexZ, to
 			glTexture(10, false)
 			glTexture(11,":l:unittextures/tacticalview/terran/diffuse/sand.png");
 			glTexture(11, false)
+			glTexture(12,":l:unittextures/tacticalview/terran/height/ramps.png");
+			glTexture(12, false)
+			glTexture(13,":l:unittextures/tacticalview/terran/height/cliffs.png");
+			glTexture(13, false)
 			gl.TexRect(-1,-1,1,1,false,true)
 			glUseShader(0)
 		end)
@@ -259,18 +277,29 @@ local function SetMapTexture(texturePool, mapTexX, mapTexZ, topTexX, topTexZ, to
 		local cur = Spring.GetTimer()
 		Spring.Echo("FullTex rendered in: "..(Spring.DiffTimers(cur, ago, true)))
 		local ago2 = Spring.GetTimer()
-		gl.Blending(GL.ONE, GL.ZERO)
+		--gl.Blending(GL.ONE, GL.ZERO)
 
 
 		Sleep()
 		Spring.ClearWatchDogTimer()
 		cur = Spring.GetTimer()
-		Spring.Echo("Splattex rendered in: "..(Spring.DiffTimers(cur, ago2, true)))
 		glColor(1, 1, 1, 1)
 
 
-		local agoSpec = Spring.GetTimer();
-		Spring.Echo("Starting to render specular")
+		Spring.Echo("Starting to render DNTS-splattex")
+		glRenderToTexture(splattex, function ()
+			glUseShader(dntsShader)
+			gl.Blending(false)
+			glTexture(0, "$heightmap")
+			glTexture(0, false)
+			glTexture(1,"$normals")
+			glTexture(1, false)
+			gl.TexRect(-1,-1,1,1,false,true)
+			glUseShader(0)
+		end)
+		gl.Blending(false)
+		glTexture(false)
+		glDeleteShader(dntsShader);
 		glRenderToTexture(spectex, function ()
 			glUseShader(diffuseShader)
 			glTexture(0, "$heightmap")
@@ -297,6 +326,10 @@ local function SetMapTexture(texturePool, mapTexX, mapTexZ, topTexX, topTexZ, to
 			glTexture(10, false)
 			glTexture(11,":l:unittextures/tacticalview/terran/specular/sand.png");
 			glTexture(11, false)
+			glTexture(12,":l:unittextures/tacticalview/terran/height/ramps.png");
+			glTexture(12, false)
+			glTexture(13,":l:unittextures/tacticalview/terran/height/cliffs.png");
+			glTexture(13, false)
 			gl.TexRect(-1,-1,1,1,false,true)
 			glUseShader(0)
 		end)
@@ -312,22 +345,11 @@ local function SetMapTexture(texturePool, mapTexX, mapTexZ, topTexX, topTexZ, to
 		glDeleteTexture(":l:unittextures/tacticalview/terran/specular/sand.png");
 		glTexture(false)
 		glDeleteShader(diffuseShader);
-
+		
 		cur = Spring.GetTimer()
-		Spring.Echo("Specular rendered in "..(Spring.DiffTimers(cur, ago, true)))
+		Spring.Echo("Specular and Splat rendered in "..(Spring.DiffTimers(cur, ago2, true)))
 
 		Spring.Echo("Starting to render SquareTextures")
-		local splattex = USE_SHADING_TEXTURE and gl.CreateTexture(MAP_X, MAP_Z,
-			{
-				format = GL_RGBA32F,
-				border = false,
-				min_filter = GL.LINEAR,
-				mag_filter = GL.LINEAR,
-				wrap_s = GL.CLAMP_TO_EDGE,
-				wrap_t = GL.CLAMP_TO_EDGE,
-				fbo = true,
-			}
-		)
 		
 		gl.Blending(false)
 
@@ -391,9 +413,10 @@ local function SetMapTexture(texturePool, mapTexX, mapTexZ, topTexX, topTexZ, to
 		Spring.Echo("All squaretex rendered and applied in: "..(Spring.DiffTimers(cur, ago3, true)))
 
 		Spring.SetMapShadingTexture("$ssmf_specular", spectex)
-		Spring.Echo("specular applied")
+		Spring.SetMapShadingTexture("$ssmf_splat_distr", splattex)
+		Spring.Echo("specular and splat applied")
 	
-		Spring.SetMapShadingTexture("$grass", texOut)
+		-- Spring.SetMapShadingTexture("$grass", texOut)
 
 		usedgrass = texOut
 		Spring.SetMapShadingTexture("$minimap", texOut)
@@ -407,24 +430,6 @@ local function SetMapTexture(texturePool, mapTexX, mapTexZ, topTexX, topTexZ, to
 			texOut = nil
 		end
 		
-		if splattex then
-			texOut = splattex
-			Spring.SetMapShadingTexture("$ssmf_splat_distr", texOut)
-			usedsplat = texOut
-			Spring.Echo("Applied splat texture")
-			gl.DeleteTextureFBO(splattex)
-			if texOut and texOut ~= usedsplat then
-				glDeleteTexture(texOut)
-				if splattex and texOut == splattex then
-					splattex = nil
-				end
-				texOut = nil
-			end
-			if splattex and splattex ~= usedsplat then
-				glDeleteTexture(splattex)
-				splattex = nil
-			end
-		end
 		local DrawEnd = Spring.GetTimer()
 		Spring.Echo("map fully processed in: "..(Spring.DiffTimers(DrawEnd, DrawStart, true)))
 		
@@ -456,4 +461,3 @@ end
 function gadget:MousePress(x, y, button)
 	return (button == 1) and (not mapfullyprocessed)
 end
-
